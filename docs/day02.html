@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Day 2｜ROS2 五大通訊概念 + QoS + ROS2 vs ROS1</title>
+<style>
+:root{color-scheme:light;
+--bg:#ffffff;--fg:#1a1c1e;--muted:#5b6570;--line:#e3e7ec;
+--accent:#0b6bcb;--accent-soft:#eef5fd;--warn:#b4540a;--warn-soft:#fff6ec;
+--ok:#1a7f4b;--ok-soft:#eefaf2;--danger:#b3261e;--danger-soft:#fdeeed;
+--code-bg:#1e2229;--code-fg:#e6e9ef;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);
+font-family:-apple-system,"Segoe UI","Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;
+line-height:1.75;font-size:15.5px;}
+.wrap{max-width:940px;margin:0 auto;padding:28px 22px 80px}
+header.hero{border:1px solid var(--line);border-radius:14px;padding:22px 24px;background:linear-gradient(180deg,#f7fbff,#ffffff)}
+.badges{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
+.badge{font-size:12.5px;padding:3px 10px;border-radius:999px;background:var(--accent-soft);color:var(--accent);border:1px solid #d3e5f8;font-weight:600}
+h1{font-size:25px;margin:6px 0 4px;letter-spacing:.3px}
+h2{font-size:20px;margin:38px 0 10px;padding-bottom:7px;border-bottom:2px solid var(--line)}
+h3{font-size:17px;margin:26px 0 6px;color:#0d3d6b}
+h4{font-size:15px;margin:16px 0 4px}
+p{margin:8px 0}
+.goal{margin-top:14px;padding:12px 14px;border-left:4px solid var(--accent);background:var(--accent-soft);border-radius:0 8px 8px 0;font-weight:600}
+table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14px}
+th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+th{background:#f4f7fa;font-weight:600}
+pre{background:var(--code-bg);color:var(--code-fg);padding:14px 16px;border-radius:10px;overflow-x:auto;font-size:13.2px;line-height:1.6}
+code{font-family:ui-monospace,"SF Mono",Consolas,"Roboto Mono",monospace}
+p code,li code,td code{background:#f0f3f7;color:#0b3d66;padding:1px 5px;border-radius:5px;font-size:.92em}
+.box{border:1px solid var(--line);border-radius:10px;padding:12px 15px;margin:12px 0}
+.why{background:#f8fafc;border-left:4px solid #94a3b8}
+.meta{background:var(--ok-soft);border-left:4px solid var(--ok)}
+.trap{background:var(--warn-soft);border-left:4px solid var(--warn)}
+.err{background:var(--danger-soft);border-left:4px solid var(--danger)}
+.tag{display:inline-block;font-size:12px;font-weight:700;letter-spacing:.5px;margin-bottom:3px}
+.why .tag{color:#475569}.meta .tag{color:var(--ok)}.trap .tag{color:var(--warn)}.err .tag{color:var(--danger)}
+ul,ol{margin:8px 0 8px 4px;padding-left:22px}
+li{margin:4px 0}
+.sched{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin:14px 0}
+.slot{border:1px solid var(--line);border-radius:10px;padding:12px 14px;background:#fbfcfe}
+.slot h4{margin:0 0 6px;color:var(--accent)}
+.slot .hr{font-size:12.5px;color:var(--muted);font-weight:600}
+.check li{list-style:none;margin:8px 0 8px -10px}
+.check input{margin-right:9px;transform:scale(1.15)}
+.formula{background:#fbfcfe;border:1px dashed #c8d4e2;border-radius:8px;padding:10px 14px;margin:10px 0;font-family:ui-monospace,monospace;font-size:14px}
+.res{border:1px solid var(--line);border-radius:10px;padding:11px 14px;margin:10px 0;background:#fbfcfe}
+.res b{color:#0d3d6b}
+.small{font-size:13.5px;color:var(--muted)}
+footer{margin-top:44px;border-top:2px solid var(--line);padding-top:18px}
+.kbd{background:#eef1f5;border:1px solid #d5dbe3;border-bottom-width:2px;border-radius:5px;padding:1px 6px;font-size:12.5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <div class="badges">
+    <span class="badge">Day 2 / 30</span>
+    <span class="badge">2026-08-06（四）</span>
+    <span class="badge">第 1 週：ROS2 基礎</span>
+    <span class="badge">Ubuntu 22.04 · ROS2 Humble · Python 3.10</span>
+  </div>
+  <h1>ROS2 五大通訊概念 + QoS + ROS2 vs ROS1</h1>
+  <p class="small">Node · Topic · Service · Action · Parameter，加上 ROS2 最會咬人的 QoS。</p>
+  <div class="goal">🎯 今日目標：今天結束時，你能只用終端機的 <code>ros2</code> 指令，把一個完全沒看過的機器人系統「解剖」出來——有哪些 node、誰發什麼 topic、誰提供什麼 service/action、參數可以調什麼——而且當學生說「我明明有 publish，為什麼 echo 不到？」時，你能在 30 秒內用 <code>ros2 topic info -v</code> 判斷是不是 QoS 不相容。</div>
+</header>
+
+<h2>⏱ 今日時段安排（總計 5 小時）</h2>
+<div class="sched">
+  <div class="slot"><div class="hr">上午 · 2.0 小時</div><h4>理論</h4>
+    <ul><li>五大概念各自解決什麼問題（1.0h）</li><li>DDS / discovery / QoS 五個 policy 與相容性規則（0.7h）</li><li>ROS2 vs ROS1 差異表（0.3h）</li></ul></div>
+  <div class="slot"><div class="hr">下午 · 2.0 小時</div><h4>實作</h4>
+    <ul><li>talker/listener + turtlesim 全套 CLI 解剖（0.8h）</li><li>Service / Action / Parameter 實際呼叫（0.7h）</li><li><b>QoS 不相容故障重現實驗</b>（0.5h）</li></ul></div>
+  <div class="slot"><div class="hr">晚上 · 1.0 小時</div><h4>收尾</h4>
+    <ul><li>把 CLI 指令整理成自己的「診斷小抄」（0.5h）</li><li>驗收清單 + 回報（0.5h）</li></ul></div>
+</div>
+<p class="small">💡 開始前先確認 Day 1 的環境還在：<code>printenv ROS_DISTRO</code> 應該印出 <code>humble</code>。沒有的話先 <code>source /opt/ros/humble/setup.bash</code>。</p>
+
+<h2>📖 知識點逐個講解</h2>
+
+<h3>1. Node（節點）— 為什麼要把程式切碎？</h3>
+<div class="box why"><span class="tag">它解決什麼問題</span>
+一台機器人要同時做：讀雷射、算定位、規劃路徑、控馬達、看攝影機。如果全寫在一支 <code>main.py</code> 裡，任何一個地方當掉整台車就停了，而且你沒辦法只重啟「攝影機那段」。Node 把系統切成一個個<strong>可以獨立啟動、獨立當掉、獨立重寫</strong>的行程單位。</div>
+<p><strong>白話：</strong>Node 就是「一個負責一件事的小程式」，它自己有名字（例如 <code>/turtlesim</code>），並且透過網路跟別的 node 講話。</p>
+<p><strong>比喻：</strong>一家公司裡的員工。每個人只做自己那份工作，靠公佈欄（Topic）和打電話（Service）協作。老闆換掉會計，業務照樣上班——這就是 node 的價值。</p>
+<div class="box trap"><span class="tag">學生常見誤解</span>
+「一個 node = 一個 process」。<b>不一定。</b>ROS2 可以用 component（<code>rclcpp_components</code>）把多個 node 塞進同一個 process 共享記憶體（zero-copy），這是 ROS2 相對 ROS1 nodelet 的正規做法。另一個方向：一個 process 也可以 <code>spin</code> 好幾個 node。所以看到 <code>ros2 node list</code> 有 5 個名字，不代表有 5 個 <code>python3</code> 行程。</div>
+
+<h3>2. Topic（話題）— 非同步的廣播</h3>
+<div class="box why"><span class="tag">它解決什麼問題</span>
+雷射 10Hz 一直吐資料，可能有 3 個模組要用（SLAM、避障、記錄）。如果用「誰要就跟我要一次」的模式，雷射節點要認識所有人、寫 3 份程式。Topic 讓發布者<strong>完全不知道有誰在聽</strong>，聽的人自己來訂閱——這叫「解耦」。</div>
+<p><strong>白話：</strong>Publisher 把訊息貼上公佈欄（topic 名稱，例如 <code>/scan</code>），任何 Subscriber 訂閱該欄位就會收到。多對多、非同步、不等回應。</p>
+<p><strong>比喻：</strong>廣播電台。DJ 不知道有幾個人在聽，也不會因為沒人聽就停播；你半路轉到這台，前面播過的你就是沒聽到。<strong>這個「前面播過的聽不到」正是後面 Durability 要處理的事。</strong></p>
+<p>每個 topic 有固定的<strong>訊息型別</strong>（message type），例如 <code>sensor_msgs/msg/LaserScan</code>。型別對不上就完全不會連上——ROS2 不會幫你轉。</p>
+<div class="box trap"><span class="tag">學生常見誤解</span>
+「我 publish 了，對方就一定收得到。」錯。至少三種情況會掉：(a) 訂閱者還沒起來（topic 沒有記憶，預設 VOLATILE）；(b) QoS 不相容，根本沒配對成功；(c) 用 BEST_EFFORT + 網路壅塞，封包就是丟了。Topic 是「盡力送達的廣播」，不是「保證送達的訊息佇列」。</div>
+
+<h3>3. Service（服務）— 同步的一問一答</h3>
+<div class="box why"><span class="tag">它解決什麼問題</span>
+有些事情是「我問你一次，你回我一個答案，我要等到答案才能繼續」——例如「幫我把地圖存檔」「把烏龜傳送到 (5,5)」。用 topic 做要自己配對 request/response、自己處理逾時，很笨。Service 直接封裝成 RPC。</div>
+<p><strong>白話：</strong>Client 送 Request → Server 處理 → 回 Response。一對一，<strong>要在短時間內做完</strong>（毫秒到一兩秒）。</p>
+<p><strong>比喻：</strong>打電話問櫃檯「還有房間嗎」。你會在線上等答案，所以對方不能拿著話筒去掃地掃十分鐘。</p>
+<div class="box trap"><span class="tag">學生常見誤解 ⚠️ 這題很會考</span>
+在一個 subscriber callback 裡面呼叫 service 並且用 <code>spin_until_future_complete()</code> 等結果 → <strong>直接死鎖（deadlock）</strong>，程式卡住不動也不報錯。原因：預設的單執行緒 executor 正在跑你的 callback，它沒辦法同時去處理 service 的回應。解法：改用 <code>MultiThreadedExecutor</code> + <code>ReentrantCallbackGroup</code>，或改成 async/callback 寫法。這是 Day 3 之後學生第一批哀嚎的來源，先記住症狀。</div>
+
+<h3>4. Action（動作）— 做很久、要回報、可以喊卡</h3>
+<div class="box why"><span class="tag">它解決什麼問題</span>
+「導航到門口」要跑 40 秒。用 service：你會卡住 40 秒、中途不知道走到哪、想取消也取消不了。Action 就是為「長時間任務」設計的。</div>
+<p><strong>白話：</strong>Action 有三個部分：<br>
+<code>Goal</code>（我要你去 (3,4)）→ <code>Feedback</code>（持續回報：還剩 2.1 公尺）→ <code>Result</code>（到了／失敗）。而且隨時可以 <code>cancel</code>。</p>
+<p><strong>比喻：</strong>叫外送。你下單（goal）、App 一直顯示外送員位置（feedback）、最後送達或取消（result / cancel）。</p>
+<div class="box meta"><span class="tag">底層真相（助教要知道）</span>
+Action 不是新的通訊機制，它是<strong>用 Topic + Service 組出來的</strong>：2 個 service（<code>send_goal</code>、<code>cancel_goal</code>、<code>get_result</code> 實際是 3 個）+ 1~2 個 topic（<code>feedback</code>、<code>status</code>）。所以 <code>ros2 topic list --include-hidden-topics</code> 會看到 <code>/navigate_to_pose/_action/feedback</code> 這種底線開頭的隱藏 topic。<b>學生問「為什麼 Nav2 的 topic 前面有底線」就是這個。</b></div>
+<div class="box trap"><span class="tag">學生常見誤解</span>
+「Action 比較強，那全部都用 Action。」不對。Action 的 overhead 大、程式碼囉嗦得多。判斷標準只有一個：<strong>這件事會不會超過大約 1 秒、需不需要中途取消或看進度？</strong>是 → Action；否 → Service。</div>
+
+<h3>5. Parameter（參數）— 節點身上的旋鈕</h3>
+<div class="box why"><span class="tag">它解決什麼問題</span>
+「最大速度 0.5 m/s」寫死在程式裡，調一次就要重新 build。Parameter 讓你在啟動時用 YAML 給、執行中用指令改。</div>
+<p><strong>白話：</strong>Parameter 是<strong>屬於某個 node 的</strong>具名、有型別的設定值（bool / int / double / string / 陣列）。node 要先 <code>declare_parameter()</code> 宣告，才能讀寫。</p>
+<p><strong>比喻：</strong>機器背面的 DIP 開關或旋鈕。開機前可以先撥好（YAML），開機後也能轉（<code>ros2 param set</code>）。</p>
+<div class="box trap"><span class="tag">學生常見誤解</span>
+「Parameter 是全域變數，設一次大家都吃得到。」<strong>錯得很嚴重。</strong>Parameter 依附在單一 node 上，<code>/node_a</code> 和 <code>/node_b</code> 各有各的 <code>max_speed</code>，互不影響。（ROS1 的 Parameter Server 才是全域的，這是 ROS1→ROS2 最容易搞混的一點。）另外：ROS2 沒有中央 parameter server，node 死了參數就沒了，所以要 <code>ros2 param dump</code> 存檔。</div>
+
+<h3>6. QoS（Quality of Service）— ROS2 最大的坑，也是今天的重點</h3>
+<div class="box why"><span class="tag">它解決什麼問題</span>
+ROS1 的通訊底層是 TCP，一律保證送達。但機器人上有兩種完全相反的需求：<br>
+• 相機影像 30Hz：<strong>寧可丟掉舊的一張，也不要為了重傳而卡住</strong>（丟了下一張馬上來）<br>
+• 地圖 <code>/map</code>：只發一次，<strong>晚到的訂閱者也一定要拿到</strong><br>
+一套設定不可能同時滿足。ROS2 底層改用 DDS，把「傳輸行為」開放成可設定的 QoS profile。</div>
+
+<h4>五個你今天必須記住的 policy</h4>
+<table>
+<tr><th>Policy</th><th>選項</th><th>白話意思</th><th>典型用在哪</th></tr>
+<tr><td><b>Reliability</b><br>可靠性</td><td>RELIABLE<br>BEST_EFFORT</td><td>RELIABLE = 掉了會重傳、保證到（像掛號信）；BEST_EFFORT = 丟了就算了（像明信片）</td><td>指令 <code>/cmd_vel</code> 用 RELIABLE；相機/雷射串流常用 BEST_EFFORT</td></tr>
+<tr><td><b>Durability</b><br>持久性</td><td>VOLATILE<br>TRANSIENT_LOCAL</td><td>VOLATILE = 你來晚了就沒有；TRANSIENT_LOCAL = publisher 幫你留著最後 N 筆，新訂閱者一連上就補送</td><td><code>/map</code>、<code>/robot_description</code>、TF static 都是 TRANSIENT_LOCAL</td></tr>
+<tr><td><b>History</b><br>歷史</td><td>KEEP_LAST(depth)<br>KEEP_ALL</td><td>來不及處理時緩衝區留幾筆。KEEP_LAST(1) = 永遠只留最新的一筆</td><td>感測器 depth=1~10；不想漏資料用 KEEP_ALL（吃記憶體）</td></tr>
+<tr><td><b>Deadline</b></td><td>時間</td><td>「我保證每 X ms 至少發一次」，違反會觸發 callback</td><td>安全監控、心跳偵測</td></tr>
+<tr><td><b>Liveliness</b></td><td>AUTOMATIC / 手動</td><td>判定「publisher 還活著嗎」的規則</td><td>偵測節點死亡</td></tr>
+</table>
+
+<h4>相容性規則（背起來，這是診斷的核心）</h4>
+<div class="formula">
+Publisher 的承諾 必須「≥」 Subscriber 的要求，才能配對成功。<br><br>
+Reliability：&nbsp; RELIABLE(強) &gt; BEST_EFFORT(弱)<br>
+Durability ：&nbsp; TRANSIENT_LOCAL(強) &gt; VOLATILE(弱)
+</div>
+<table>
+<tr><th>Publisher</th><th>Subscriber</th><th>結果</th></tr>
+<tr><td>RELIABLE</td><td>RELIABLE</td><td>✅ 連上</td></tr>
+<tr><td>RELIABLE</td><td>BEST_EFFORT</td><td>✅ 連上（我承諾更多，你要求較少，OK）</td></tr>
+<tr><td>BEST_EFFORT</td><td>BEST_EFFORT</td><td>✅ 連上</td></tr>
+<tr><td><b>BEST_EFFORT</b></td><td><b>RELIABLE</b></td><td><b>❌ 完全收不到</b>（我做不到你要求的保證）</td></tr>
+</table>
+<p><strong>比喻：</strong>徵才。職缺要求「碩士以上」（Subscriber 要求 RELIABLE），你是碩士或博士都能錄取；你只有學士（BEST_EFFORT）就是不錄取。而且——<strong>ROS2 不會幫你降級湊合，它就是不連。</strong></p>
+<div class="box trap"><span class="tag">學生常見誤解 ⚠️ 全課程 Top 3 卡點</span>
+「<code>ros2 topic list</code> 有這個 topic、<code>ros2 topic hz</code> 也有數字，所以資料是通的。」<b>不一定。</b><code>topic list</code> 只是 discovery 層看得到名字，跟你的 subscriber 能不能收到是兩回事。判斷唯一標準是 <code>ros2 topic info /xxx --verbose</code> 看雙方的 QoS，以及終端機有沒有跳 <code>incompatible QoS</code> 警告。</div>
+
+<h3>7. DDS 與 Discovery — 為什麼沒有 roscore 也找得到彼此</h3>
+<p>ROS2 底層是 <strong>DDS</strong>（預設 Humble 用 Fast DDS）。開機時每個 node 會往區域網路發 <strong>multicast（多播）</strong>封包宣告「我在這、我發這些 topic」，別人聽到就直接建立點對點連線。所以 <strong>ROS2 沒有 master、沒有單點故障</strong>。</p>
+<p><code>ROS_DOMAIN_ID</code>（0~101，預設 0）是「頻道號碼」：同一個網段上，只有 domain ID 相同的 node 才看得到彼此。<strong>教室裡 20 個學生共用同一個 Wi-Fi 時，如果大家都用預設 0，會互相看到對方的 <code>/cmd_vel</code>，別人的車就會亂動。</strong>這是 Day 24 實體機器人的必考題，今天先建立概念。</p>
+
+<h3>8. ROS2 vs ROS1 — 講給有 ROS1 背景的人聽</h3>
+<table>
+<tr><th></th><th>ROS1 (Noetic)</th><th>ROS2 (Humble)</th></tr>
+<tr><td>中心節點</td><td>需要 <code>roscore</code>（單點故障）</td><td>無，DDS 自動 discovery</td></tr>
+<tr><td>傳輸</td><td>TCPROS/UDPROS，行為固定</td><td>DDS + 可設定 QoS</td></tr>
+<tr><td>Parameter</td><td>全域 Parameter Server</td><td>屬於各個 node，需 declare</td></tr>
+<tr><td>Launch</td><td>XML</td><td>Python（也支援 XML/YAML），可寫邏輯</td></tr>
+<tr><td>建置</td><td><code>catkin_make</code></td><td><code>colcon build</code></td></tr>
+<tr><td>API</td><td>roscpp / rospy 各寫一套</td><td>rclcpp / rclpy 共用底層 <code>rcl</code>，行為一致</td></tr>
+<tr><td>即時性 / 生命週期</td><td>無</td><td>支援 real-time、有 Lifecycle Node（可控的 configure→activate 狀態機，Nav2 全靠它）</td></tr>
+<tr><td>作業系統</td><td>Linux 為主</td><td>Linux / Windows / macOS / 微控制器(micro-ROS)</td></tr>
+</table>
+<p class="small">🎓 學生問「那 ROS1 的東西還能用嗎」→ 有 <code>ros1_bridge</code>，但版本綁很死，課堂上不建議，直接用 ROS2 原生套件。</p>
+
+<h2>💻 可直接複製貼上的實作</h2>
+
+<h4>Step 0. 每個新終端機都要做（學生 90% 的錯誤來源）</h4>
+<pre><code># 每開一個新的 terminal 都要 source，不然 ros2 指令找不到套件
+source /opt/ros/humble/setup.bash
+
+# 懶人法：寫進 .bashrc（之後開 terminal 自動生效）
+echo "source /opt/ros/humble/setup.bash" &gt;&gt; ~/.bashrc
+source ~/.bashrc
+
+# 確認
+printenv ROS_DISTRO        # 應印出 humble
+printenv ROS_DOMAIN_ID     # 空的代表 0，正常</code></pre>
+
+<h4>Step 1. Node 與 Topic：解剖 talker / listener</h4>
+<pre><code># --- Terminal 1 ---
+ros2 run demo_nodes_cpp talker
+
+# --- Terminal 2 ---
+ros2 run demo_nodes_py listener
+
+# --- Terminal 3（診斷用，今天主要待在這裡）---
+ros2 node list                    # 看有哪些 node
+ros2 node info /talker            # 這個 node 發什麼、收什麼、有什麼 service/action
+
+ros2 topic list -t                # 列出 topic 並顯示型別（-t 很重要）
+ros2 topic echo /chatter          # 印出實際資料（Ctrl+C 停）
+ros2 topic hz /chatter            # 實際發佈頻率（診斷「卡頓」第一招）
+ros2 topic bw /chatter            # 頻寬（診斷「網路塞住」）
+ros2 topic info /chatter --verbose  # ★ 看雙方 QoS，今天最重要的一行指令
+
+ros2 interface show std_msgs/msg/String   # 看訊息型別長什麼樣
+
+# 不用寫程式就能自己發一筆訊息（教學示範神器）
+ros2 topic pub --once /chatter std_msgs/msg/String "{data: 'hello from CLI'}"
+# 持續以 2Hz 發送
+ros2 topic pub -r 2 /chatter std_msgs/msg/String "{data: 'tick'}"</code></pre>
+
+<h4>Step 2. Service：turtlesim 實作</h4>
+<pre><code># --- Terminal 1 ---
+ros2 run turtlesim turtlesim_node
+
+# --- Terminal 2 ---
+ros2 service list -t                     # 列出 service 與型別
+ros2 service type /spawn                 # turtlesim/srv/Spawn
+ros2 interface show turtlesim/srv/Spawn  # 看 request/response 欄位（--- 上面是 request）
+
+# 生一隻新烏龜（同步呼叫，馬上回你結果）
+ros2 service call /spawn turtlesim/srv/Spawn "{x: 3.0, y: 3.0, theta: 0.0, name: 'turtle2'}"
+
+# 把 turtle1 瞬移
+ros2 service call /turtle1/teleport_absolute turtlesim/srv/TeleportAbsolute "{x: 1.0, y: 1.0, theta: 0.0}"
+
+# 清空畫面軌跡
+ros2 service call /clear std_srvs/srv/Empty</code></pre>
+
+<h4>Step 3. Action：看 feedback 一路跑完</h4>
+<pre><code>ros2 action list -t
+ros2 action info /turtle1/rotate_absolute -t
+
+# 送出 goal 並且顯示 feedback（--feedback 這個旗標一定要示範給學生看）
+ros2 action send_goal /turtle1/rotate_absolute \
+  turtlesim/action/RotateAbsolute "{theta: 3.14}" --feedback
+
+# ★ 看 action 底層的隱藏 topic（理解 action = topic + service）
+ros2 topic list --include-hidden-topics | grep _action</code></pre>
+
+<h4>Step 4. Parameter</h4>
+<pre><code>ros2 param list                                   # 所有 node 的參數
+ros2 param describe /turtlesim background_b        # 型別、範圍、說明
+ros2 param get /turtlesim background_b
+ros2 param set /turtlesim background_b 0           # 背景會立刻變色 → 執行期可改的實證
+ros2 param set /turtlesim background_g 0
+
+ros2 param dump /turtlesim &gt; turtlesim_params.yaml # 存成 YAML（Day 4 會用）
+cat turtlesim_params.yaml
+ros2 param load /turtlesim turtlesim_params.yaml   # 還原</code></pre>
+
+<h4>Step 5. ★ QoS 故障重現實驗（今天最重要的 15 分鐘）</h4>
+<pre><code># --- Terminal 1：故意用 BEST_EFFORT 發布 ---
+ros2 topic pub -r 2 /qos_test std_msgs/msg/String "{data: 'hi'}" \
+  --qos-reliability best_effort
+
+# --- Terminal 2：用 BEST_EFFORT 訂閱 → 收得到 ✅ ---
+ros2 topic echo /qos_test --qos-reliability best_effort
+
+# --- Terminal 2（Ctrl+C 後改成）：用 RELIABLE 訂閱 → 收不到 ❌ ---
+ros2 topic echo /qos_test --qos-reliability reliable
+# 你會看到終端機安靜無聲，並且（依 DDS 版本）跳出：
+#   [WARN] New publisher discovered on topic '/qos_test', offering incompatible QoS.
+#   No messages will be sent to it. Last incompatible policy: RELIABILITY
+
+# --- Terminal 3：用工具「看見」問題 ---
+ros2 topic info /qos_test --verbose
+# 逐一比對 Publisher 與 Subscription 區塊的 Reliability / Durability
+
+# --- 加碼：Durability 實驗（理解 /map 為什麼晚連也收得到）---
+ros2 topic pub --once /latch_test std_msgs/msg/String "{data: 'i was published first'}" \
+  --qos-durability transient_local --keep-alive 60
+# 等 5 秒後再開另一個 terminal：
+ros2 topic echo /latch_test --qos-durability transient_local
+# → 竟然收得到「之前」發的那筆！這就是 TRANSIENT_LOCAL。
+# 把 --qos-durability 拿掉（預設 volatile）再試一次 → 收不到。</code></pre>
+
+<h4>Step 6. 圖形化 + daemon 清理</h4>
+<pre><code>rqt_graph          # 視覺化 node/topic 關係圖（左上角記得按重新整理 🔄）
+                   # 把 Debug/"Dead sinks"、"Leaf topics" 勾選打開，才看得到全部
+
+ros2 daemon stop   # node list 有殘影、看到已經關掉的 node 時，先跑這行
+ros2 daemon start</code></pre>
+
+<h4>Step 7.（選做，10 分鐘）讀懂一段設定 QoS 的 rclpy 程式</h4>
+<p class="small">Day 3 才會正式寫 node，今天只要「看得懂」即可。</p>
+<pre><code>import rclpy
+from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
+from std_msgs.msg import String
+
+class QoSDemo(Node):
+    def __init__(self):
+        super().__init__('qos_demo')
+
+        # 宣告參數：ROS2 一定要先 declare 才能 get，否則丟 ParameterNotDeclaredException
+        self.declare_parameter('publish_rate', 2.0)
+        rate = self.get_parameter('publish_rate').value
+
+        # 感測器串流常用的 QoS：丟了就算了、只留最新一筆
+        sensor_qos = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT,  # 不重傳，低延遲
+            durability=DurabilityPolicy.VOLATILE,       # 晚來的訂閱者拿不到舊資料
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,                                    # 緩衝區只留 1 筆
+        )
+
+        # 地圖 / 靜態資訊常用的 QoS：晚來的人也要補送（等同 ROS1 的 latched topic）
+        map_qos = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,  # ← 關鍵
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+        )
+
+        self.pub = self.create_publisher(String, 'qos_demo_topic', sensor_qos)
+        self.create_timer(1.0 / rate, self.tick)
+
+    def tick(self):
+        msg = String()
+        msg.data = f'stamp={self.get_clock().now().nanoseconds}'
+        self.pub.publish(msg)
+
+def main():
+    rclpy.init()
+    rclpy.spin(QoSDemo())   # spin = 把控制權交給 ROS，開始處理 callback
+
+if __name__ == '__main__':
+    main()</code></pre>
+
+<h2>📚 今日指定資源（挑 2–3 個，別全看）</h2>
+<div class="res"><b>1. Articulated Robotics（Josh Newans）— "What is ROS2?" / "Topics, Services and Actions"</b><br>
+系列：<i>Getting Ready to Build Robots with ROS</i>，第 3～6 集。<span class="small">這是目前把 ROS2 概念講得最清楚的英文影片，畫面示範多。今天只看講 topic/service/action 的那兩集，約 25 分鐘。</span></div>
+<div class="res"><b>2. ROS 2 Humble 官方文件 — Tutorials ▸ Beginner: CLI Tools</b><br>
+必讀節次：<code>Understanding nodes</code>、<code>Understanding topics</code>、<code>Understanding services</code>、<code>Understanding parameters</code>、<code>Understanding actions</code>。<span class="small">上面 Step 1–4 基本上就是照著這五節做的，可交叉對照。</span></div>
+<div class="res"><b>3. ROS 2 Humble 官方文件 — Concepts ▸ Intermediate ▸ 「About Quality of Service settings」</b><br><span class="small">★ 今天唯一「必須完整讀完」的一份。特別注意 "QoS compatibilities" 那張表和最後的 predefined profiles（<code>SensorDataQoS</code>、<code>SystemDefaultsQoS</code>）。</span></div>
+<div class="res"><b>4.（選讀）ROS 2 Design — "ROS on DDS"</b><br><span class="small">想知道「為什麼是 DDS 不是別的」再看。design.ros2.org，10 分鐘。</span></div>
+
+<h2>✅ 今日驗收清單</h2>
+<ul class="check">
+<li><input type="checkbox"> 我能<b>不看筆記</b>，用一句話分別說出 Topic / Service / Action 各適合什麼場景，並各舉一個 turtlesim 或 TurtleBot 的真實例子。</li>
+<li><input type="checkbox"> 我能只用 CLI，在 turtlesim 上：生出第二隻烏龜（service）、讓它轉到指定角度並看到 feedback（action）、把背景改成黑色（parameter）。</li>
+<li><input type="checkbox"> 我<b>親手重現</b>了 QoS 不相容：BEST_EFFORT publisher + RELIABLE subscriber → 收不到，並在 <code>ros2 topic info --verbose</code> 的輸出裡指出是哪一行不合。</li>
+<li><input type="checkbox"> 我能解釋為什麼 <code>/map</code> 要用 TRANSIENT_LOCAL，而 <code>/scan</code> 通常用 BEST_EFFORT。</li>
+<li><input type="checkbox"> 我把今天用到的 CLI 指令整理成一份自己的「ROS2 診斷小抄」（至少 12 條），存成 <code>~/ta_notes/day02_cli_cheatsheet.md</code>。</li>
+</ul>
+
+<h2>🎓 助教筆記：學生今天最會卡的 5 個問題</h2>
+
+<div class="box err"><span class="tag">卡點 1｜ros2: command not found ／ Package 'turtlesim' not found</span>
+<b>錯誤訊息：</b><code>bash: ros2: command not found</code> 或 <code>Package 'demo_nodes_cpp' not found</code><br>
+<b>真正原因：</b>新開的終端機沒有 <code>source</code>。這佔第一週所有問題的一半以上。<br>
+<b>診斷指令：</b><pre style="margin:8px 0"><code>printenv ROS_DISTRO          # 空的 → 就是沒 source
+printenv | grep AMENT         # 空的 → 同上</code></pre>
+<b>解法：</b><code>source /opt/ros/humble/setup.bash</code>，並教學生寫進 <code>~/.bashrc</code>。<br>
+<b>助教講法：</b>「ROS 不是安裝在系統路徑裡的普通指令，它是一組環境變數。每開一扇新的門（terminal），你都要重新報到一次。」</div>
+
+<div class="box err"><span class="tag">卡點 2｜topic 明明有，echo 卻一片空白 ★最有價值的一題</span>
+<b>症狀：</b><code>ros2 topic list</code> 看得到、<code>ros2 topic hz</code> 甚至有數字，但 <code>ros2 topic echo</code> 完全沒東西。<br>
+<b>錯誤訊息（有時才會出現）：</b><code>New publisher discovered on topic 'X', offering incompatible QoS. No messages will be sent to it. Last incompatible policy: RELIABILITY</code><br>
+<b>三種可能，照順序排除：</b>
+<ol>
+<li><b>QoS 不相容</b>（最常見）：<code>ros2 topic info /X --verbose</code>，比對 Publisher 與 Subscription 的 Reliability / Durability。感測器 topic 要加旗標：<code>ros2 topic echo /scan --qos-reliability best_effort</code>。</li>
+<li><b>名稱空間打錯</b>：<code>/scan</code> vs <code>/robot1/scan</code>。用 <code>ros2 topic list | grep scan</code> 確認完整路徑。</li>
+<li><b>publisher 其實沒在發</b>：<code>ros2 topic hz /X</code> 若印出 <code>no new messages</code>，問題在發布端不在接收端。</li>
+</ol>
+<b>SOP 一句話：</b>list → hz → info -v，三招定位。</div>
+
+<div class="box err"><span class="tag">卡點 3｜ros2 service call 按下去就卡死，游標不動</span>
+<b>症狀：</b>終端機停在 <code>waiting for service to become available...</code>。<br>
+<b>診斷：</b><pre style="margin:8px 0"><code>ros2 service list | grep &lt;名字&gt;      # service 到底存不存在？
+ros2 node list                       # 提供這個 service 的 node 起來了嗎？
+ros2 service type /your_service      # 型別對不對？</code></pre>
+<b>三種原因：</b>(a) server node 根本沒啟動；(b) service 名字打錯或少了 namespace；(c) request 的 YAML 欄位名稱或型別寫錯（例如 <code>x: 3</code> 寫成整數，但欄位是 float，要寫 <code>3.0</code>）。<br>
+<b>進階（Day 3 之後才會遇到）：</b>在 callback 裡同步呼叫 service 造成的 executor 死鎖，症狀是<b>完全沒有錯誤訊息</b>的凍結。看到「沒報錯就是不動」，先問「你是不是在 callback 裡面 call service？」</div>
+
+<div class="box err"><span class="tag">卡點 4｜ParameterNotDeclaredException</span>
+<b>錯誤訊息：</b><code>rclpy.exceptions.ParameterNotDeclaredException: ('Invalid access to undeclared parameter(s)', ...)</code><br>
+<b>原因：</b>ROS2 預設<b>不允許</b>存取未宣告的 parameter（ROS1 的習慣直接用會死在這）。<br>
+<b>解法：</b>在 <code>__init__</code> 裡先 <code>self.declare_parameter('name', default_value)</code>。<br>
+<b>另一個變形：</b><code>ros2 param set</code> 說 <code>Setting parameter failed: parameter 'xxx' has invalid type</code> → 型別要一致，宣告成 double 就必須用 <code>1.0</code> 不能用 <code>1</code>。</div>
+
+<div class="box err"><span class="tag">卡點 5｜看得到自己的 node，看不到同學／另一台電腦的</span>
+<b>症狀：</b>兩台電腦跑同一個系統，<code>ros2 node list</code> 只看得到自己。或反過來：看到一堆不屬於自己的 node。<br>
+<b>診斷：</b><pre style="margin:8px 0"><code>printenv ROS_DOMAIN_ID       # 兩台必須一樣
+ros2 daemon stop &amp;&amp; ros2 daemon start   # 清掉快取殘影
+ros2 multicast receive        # 一台跑這個
+ros2 multicast send           # 另一台跑這個 → 收得到才代表網路 OK
+ip addr                       # 兩台在不在同一網段</code></pre>
+<b>常見成因：</b>(a) <code>ROS_DOMAIN_ID</code> 不同；(b) 防火牆擋 multicast（<code>sudo ufw disable</code> 測試）；(c) 學校 Wi-Fi 隔離客戶端（AP isolation）——這個無解，要改用有線或自己的路由器；(d) Docker 沒開 <code>--network host</code>。<br>
+<b>教室預防措施：</b>開學第一天就規定每個學生用自己的 <code>ROS_DOMAIN_ID</code>（例如學號末兩碼，範圍 0–101），寫進 <code>.bashrc</code>。<b>這件事現在不做，Day 24 上實體機時會出人命等級的混亂。</b></div>
+
+<h2>📝 回報格式</h2>
+<div class="box meta">
+今天結束後，請回覆以下四項（越具體越好，我明天會針對你的卡點先補課再上新進度）：
+<ol>
+<li><b>完成了什麼</b>：對照驗收清單勾了幾項</li>
+<li><b>卡在哪</b>：<b>貼完整錯誤訊息</b>（整段複製，不要只寫「跑不動」）+ 你當時下的指令</li>
+<li><b>沒懂的概念</b>：哪一段看完還是霧煞煞（例如「QoS 相容性方向我一直搞反」）</li>
+<li><b>實際花的時間</b>：上午／下午／晚上各多久，好讓我調整明天的份量</li>
+</ol>
+</div>
+
+<footer>
+<p class="small">明天 Day 3 預告：建 workspace 與 package、用 rclpy 親手寫第一個 Publisher / Subscriber、搞懂 <code>colcon build</code> 到底做了什麼（以及 <code>--symlink-install</code> 為什麼能讓你改完 Python 不用重 build）。今天的 QoS 概念明天寫程式時會立刻用到。</p>
+<p class="small"><a href="index.html" style="color:#0b6bcb;text-decoration:none">← 回索引</a></p>
+<p class="small">環境鎖定：Ubuntu 22.04 · ROS2 Humble · Gazebo Classic 11 · Python 3.10 · Isaac Sim 5.1（獨立 conda / Python 3.11）</p>
+</footer>
+
+</div>
+</body>
+</html>
