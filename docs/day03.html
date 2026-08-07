@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Day 3｜建 workspace/package + rclpy Publisher/Subscriber + colcon build 機制</title>
+<style>
+:root{color-scheme:light}
+*{box-sizing:border-box}
+body{margin:0;background:#fcfcfb;color:#2e2c27;
+font-family:-apple-system,"Segoe UI","PingFang TC","Microsoft JhengHei",sans-serif;
+line-height:1.75}
+.wrap{max-width:900px;margin:0 auto;padding:40px 22px 80px}
+h1{font-family:Georgia,"Noto Serif TC",serif;font-size:30px;margin:0 0 8px;font-weight:600;line-height:1.35}
+h2{font-size:21px;margin:44px 0 14px;padding-bottom:8px;border-bottom:2px solid #e4e3dc;font-weight:600}
+h3{font-size:17px;margin:30px 0 8px;font-weight:600;color:#1f4d3d}
+h4{font-size:15px;margin:18px 0 6px;font-weight:600;color:#6b6a63}
+.meta{color:#6b6a63;font-size:14px;margin:0 0 26px}
+.goal{background:#f3f7f2;border-left:4px solid #4a7c59;padding:14px 18px;margin:20px 0;border-radius:0 6px 6px 0}
+.goal strong{color:#2f5d43}
+.box{background:#fff;border:1px solid #e4e3dc;border-radius:8px;padding:16px 18px;margin:16px 0}
+.warn{background:#fdf6ec;border-left:4px solid #d9a441;padding:12px 16px;margin:14px 0;border-radius:0 6px 6px 0;font-size:15px}
+.myth{background:#fbf0f0;border-left:4px solid #c0605a;padding:12px 16px;margin:14px 0;border-radius:0 6px 6px 0;font-size:15px}
+.myth b,.warn b{display:block;margin-bottom:4px}
+pre{background:#1e2127;color:#e6e6e6;padding:16px 18px;border-radius:8px;overflow-x:auto;
+font-size:13.5px;line-height:1.6;margin:14px 0}
+code{font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace}
+p code,li code,td code{background:#eeede6;color:#8a3b2f;padding:1.5px 5px;border-radius:4px;font-size:13.5px}
+table{border-collapse:collapse;width:100%;margin:16px 0;font-size:14.5px}
+th,td{border:1px solid #e4e3dc;padding:9px 11px;text-align:left;vertical-align:top}
+th{background:#f4f3ee;font-weight:600}
+ul,ol{padding-left:24px}
+li{margin:5px 0}
+.sched{display:flex;flex-wrap:wrap;gap:12px;margin:16px 0}
+.sched>div{flex:1 1 260px;background:#fff;border:1px solid #e4e3dc;border-radius:8px;padding:14px 16px}
+.sched h4{margin:0 0 6px;color:#2f5d43;font-size:15px}
+.sched .hr{color:#b4b3a8;font-size:12.5px;letter-spacing:.05em}
+.check li{list-style:none;margin:8px 0 8px -20px}
+.check li::before{content:"☐ ";color:#4a7c59;font-weight:700}
+footer{margin-top:56px;padding-top:18px;border-top:1px solid #e4e3dc;font-size:13.5px;color:#6b6a63}
+footer a{color:#2f5d43}
+.tag{display:inline-block;background:#eef2ee;color:#2f5d43;font-size:12px;padding:2px 9px;border-radius:20px;margin-right:6px}
+@media(max-width:640px){.wrap{padding:28px 15px 60px}h1{font-size:24px}pre{font-size:12.5px}}
+</style>
+</head>
+<body><div class="wrap">
+
+<h1>Day 3｜建 workspace / package ＋ rclpy 寫 Publisher / Subscriber ＋ colcon build 機制</h1>
+<p class="meta">2026-08-07（星期五）　·　第 1 週：ROS2 基礎　·　Ubuntu 22.04 + ROS2 Humble + Python 3.10</p>
+
+<div class="goal">
+<strong>今日目標：</strong>今天結束時，你要能從零手刻一個 ROS2 Python package，寫出一組會互相通訊的 Publisher / Subscriber 節點，用 <code>colcon build</code> 編譯、<code>source install/setup.bash</code> 後用 <code>ros2 run</code> 跑起來——而且能講清楚「為什麼一定要 source、source 的到底是什麼」。
+</div>
+
+<h2>時段安排（總計約 5.5 小時）</h2>
+<div class="sched">
+<div><span class="hr">上午 · 約 2 小時</span><h4>理論</h4>workspace 三層結構（src / build / install）、package 是什麼、ament_python 與 setup.py、colcon build 到底做了什麼、underlay vs overlay。</div>
+<div><span class="hr">下午 · 約 2.5 小時</span><h4>實作</h4>建 <code>~/ros2_ws</code>、建 package、手寫 talker/listener、build、跑起來、用 <code>ros2 topic echo</code> / <code>rqt_graph</code> 驗證，再刻意弄壞它三次並修好。</div>
+<div><span class="hr">晚上 · 約 1 小時</span><h4>收尾</h4>把「colcon build 失敗的 5 種樣子」寫進助教筆記，練習口頭解釋「source 是在做什麼」給完全不懂的人聽。</div>
+</div>
+
+<h2>一、知識點逐個講解</h2>
+
+<h3>1.1 Workspace：為什麼需要一個「工作區」</h3>
+
+<h4>它解決什麼問題</h4>
+<p>ROS2 官方裝好之後，所有東西都在 <code>/opt/ros/humble</code>，那是<b>唯讀</b>的系統目錄。你自己寫的程式不能塞進去（也不該塞）。但你自己寫的節點又必須讓 <code>ros2 run</code>、<code>ros2 launch</code> 找得到。Workspace 就是「你自己的、可寫的、能被 ROS 工具鏈認得的第二個地盤」。</p>
+
+<h4>白話解釋 + 比喻</h4>
+<p>把 <code>/opt/ros/humble</code> 想成<b>學校的公用圖書館</b>——書很多，但你不能在上面寫字。Workspace 是<b>你自己的書桌</b>，你在書桌上寫的筆記，只要在「登記簿」上登記過（＝ source setup.bash），別人查資料時就會<b>先查你的書桌、查不到才去圖書館</b>。這個「先查書桌再查圖書館」的順序，就是後面要講的 overlay 蓋在 underlay 上。</p>
+
+<h4>三個目錄的分工</h4>
+<table>
+<tr><th>目錄</th><th>誰產生</th><th>裡面是什麼</th><th>可以刪嗎</th></tr>
+<tr><td><code>src/</code></td><td>你</td><td>原始碼。<b>唯一你該手動編輯的地方</b></td><td>不行，刪了就沒了</td></tr>
+<tr><td><code>build/</code></td><td>colcon</td><td>編譯中間產物、CMake 快取、egg-info</td><td>可以，且卡關時常常該刪</td></tr>
+<tr><td><code>install/</code></td><td>colcon</td><td>最終安裝結果：可執行檔、setup.bash、share/ 裡的 launch 與 msg</td><td>可以，重 build 會回來</td></tr>
+<tr><td><code>log/</code></td><td>colcon</td><td>每次 build 的完整輸出，除錯神器</td><td>可以</td></tr>
+</table>
+
+<div class="myth">
+<b>常見誤解：「我改了 src 裡的 .py，為什麼 ros2 run 跑的還是舊的？」</b>
+因為 <code>ros2 run</code> 執行的是 <code>install/</code> 底下那份<b>複製品</b>，不是你剛改的 <code>src/</code>。除非你用 <code>--symlink-install</code>（下面會講），否則<b>每次改 Python 都要重 build</b>。這是新手第一週最常鬼打牆的一題。
+</div>
+
+<h3>1.2 Package：ROS2 的最小發佈單位</h3>
+
+<h4>它解決什麼問題</h4>
+<p>你不會希望「一個超大資料夾裝全部程式」。Package 是 ROS2 的模組單位：一個 package = 一組相關的節點 + 它的相依宣告 + 它的建置規則。<code>ros2 run &lt;package&gt; &lt;executable&gt;</code> 這個指令的第一個參數就是 package 名。</p>
+
+<h4>Python package 一定要有的四樣東西</h4>
+<table>
+<tr><th>檔案</th><th>作用</th><th>白話</th></tr>
+<tr><td><code>package.xml</code></td><td>ROS 層級的身分證與相依宣告</td><td>「我叫什麼、我需要誰、我用哪種建置系統」</td></tr>
+<tr><td><code>setup.py</code></td><td>Python 層級的安裝腳本</td><td>「哪些檔案要複製到 install/、哪個函式是可執行檔入口」</td></tr>
+<tr><td><code>setup.cfg</code></td><td>告訴 setuptools 執行檔要放哪</td><td>放到 <code>lib/&lt;package&gt;</code>，這樣 <code>ros2 run</code> 才找得到</td></tr>
+<tr><td><code>&lt;pkg&gt;/__init__.py</code></td><td>讓資料夾成為 Python module</td><td>沒有它，import 會失敗</td></tr>
+</table>
+
+<div class="warn">
+<b>ament_python vs ament_cmake</b>
+純 Python 節點 → <code>ament_python</code>（今天用這個）。要自訂 msg/srv、或有 C++ → <code>ament_cmake</code>（Day 4 會用）。<b>自訂 msg 不能放在 ament_python 的 package 裡</b>，這是 Day 4 的第一個坑，今天先記住。
+</div>
+
+<h3>1.3 setup.py 的 entry_points：<code>ros2 run</code> 到底在跑什麼</h3>
+
+<h4>它解決什麼問題</h4>
+<p><code>ros2 run my_pkg talker</code> 這句話，ROS2 是怎麼從 <code>talker</code> 這個字找到你的 Python 函式的？答案是 <code>setup.py</code> 裡的 <code>entry_points</code>。</p>
+
+<pre><code>entry_points={
+    'console_scripts': [
+        'talker = my_py_pkg.publisher_node:main',
+    #    ^^^^^^   ^^^^^^^^^^ ^^^^^^^^^^^^^^^ ^^^^
+    #    指令名     package名   .py 檔名(不含.py)  要呼叫的函式
+    ],
+},</code></pre>
+
+<p>build 時 setuptools 會在 <code>install/my_py_pkg/lib/my_py_pkg/talker</code> 生出一支<b>小小的殼層腳本</b>，內容大致是「import my_py_pkg.publisher_node，然後呼叫 main()」。<code>ros2 run</code> 就是去那個路徑找同名檔案來執行。</p>
+
+<div class="myth">
+<b>常見誤解：「executable 名字一定要跟 .py 檔名一樣」</b>
+不用。左邊的 <code>talker</code> 是你要打的指令名，右邊的 <code>publisher_node</code> 才是檔名，兩者可以完全不同。錯誤訊息 <code>No executable found</code> 十次有八次就是這行寫錯、或是改完沒重 build。
+</div>
+
+<h3>1.4 colcon build 到底做了什麼</h3>
+
+<h4>它解決什麼問題</h4>
+<p>你的 workspace 裡可能有 10 個 package，彼此有相依關係（A 用到 B 的 msg）。colcon 的工作是：<b>讀每個 package.xml 算出相依拓撲 → 決定編譯順序 → 依 build_type 呼叫對應的建置工具 → 把結果安裝到 install/ → 產生 setup.bash 環境腳本</b>。</p>
+
+<h4>比喻</h4>
+<p>colcon 像<b>工地的工頭</b>：它自己不砌磚，但它看得懂圖（package.xml），知道「地基（B）要先做完才能蓋二樓（A）」，然後叫對的工班（setuptools 或 CMake）去做，最後驗收入庫。</p>
+
+<h4>三個你一定要會的參數</h4>
+<table>
+<tr><th>參數</th><th>作用</th><th>什麼時候用</th></tr>
+<tr><td><code>--symlink-install</code></td><td>install/ 裡放<b>符號連結</b>指回 src/，而不是複製</td><td>寫 Python 時<b>幾乎一定要加</b>，改完不用重 build（新增檔案或改 setup.py 時仍要重 build）</td></tr>
+<tr><td><code>--packages-select &lt;pkg&gt;</code></td><td>只 build 指定的 package</td><td>workspace 大時省時間</td></tr>
+<tr><td><code>--event-handlers console_direct+</code></td><td>把編譯輸出直接印在畫面上</td><td>編譯錯誤看不出所以然時</td></tr>
+</table>
+
+<div class="warn">
+<b>鐵律：<code>colcon build</code> 一定要在 workspace 根目錄（<code>~/ros2_ws</code>）執行，不能在 <code>src/</code> 裡面執行。</b>
+在 src/ 裡執行的話，colcon 會在 src/ 底下再生一組 build/install，之後整個環境會錯亂。真的做錯了：<code>rm -rf src/build src/install src/log</code>。
+</div>
+
+<h3>1.5 source setup.bash：underlay 與 overlay</h3>
+
+<h4>它解決什麼問題</h4>
+<p>ROS2 的指令列工具（<code>ros2 run</code>、<code>ros2 topic</code>）是靠<b>環境變數</b>找東西的，不是靠掃描整台電腦。<code>source setup.bash</code> 就是把路徑寫進當前這個 shell 的環境變數。</p>
+
+<h4>它到底改了什麼</h4>
+<pre><code># source 之後可以自己看：
+echo $AMENT_PREFIX_PATH     # ROS 找 package 的路徑清單
+echo $PYTHONPATH            # Python import 找得到你的 module
+echo $LD_LIBRARY_PATH       # C++ 動態函式庫路徑
+echo $ROS_DISTRO            # humble
+echo $ROS_DOMAIN_ID         # 同一區網互相隔離用（沒設就是 0）</code></pre>
+
+<h4>比喻</h4>
+<p><b>underlay</b>（<code>/opt/ros/humble/setup.bash</code>）＝地基那層樓；<b>overlay</b>（<code>~/ros2_ws/install/setup.bash</code>）＝蓋在上面那層。查詢時<b>由上往下</b>找，所以你 workspace 裡如果有一個跟官方同名的 package，你的會贏。順序不能反：<b>先 source underlay，再 source overlay</b>。</p>
+
+<div class="myth">
+<b>常見誤解：「我 source 過了啊，為什麼另一個終端機不認得？」</b>
+<code>source</code> 只影響<b>執行它的那一個 shell</b>。你開新分頁、新視窗、ssh 進來、或是用 VS Code 內建終端機，那都是<b>全新的 shell，環境是乾淨的</b>。每個新終端機都要重 source。想省事就寫進 <code>~/.bashrc</code>（下面有指令），但要知道代價：以後你 build 壞掉時 bashrc 也會噴錯。
+</div>
+
+<h3>1.6 rclpy 節點的骨架：五行心法</h3>
+
+<p>每一支 rclpy 節點都長一樣，記住這五步就能默寫：</p>
+<ol>
+<li><code>rclpy.init()</code>　→ 啟動 ROS2 通訊層（DDS middleware）</li>
+<li><code>node = MyNode()</code>　→ 建節點，在 <code>__init__</code> 裡建 publisher / subscriber / timer</li>
+<li><code>rclpy.spin(node)</code>　→ <b>把控制權交給 ROS2</b>，開始處理 callback，這行會卡住直到 Ctrl+C</li>
+<li><code>node.destroy_node()</code>　→ 釋放資源</li>
+<li><code>rclpy.shutdown()</code>　→ 關掉通訊層</li>
+</ol>
+
+<div class="myth">
+<b>常見誤解：「我在 main 裡寫個 while True 迴圈發訊息就好，幹嘛用 timer？」</b>
+可以，但你會發現<b>Subscriber 收不到東西</b>。因為 callback（包含 subscriber callback）只有在 <code>rclpy.spin()</code> 或 <code>rclpy.spin_once()</code> 執行時才會被處理。自己寫 while 迴圈等於把 ROS2 的事件迴圈餓死。<b>正確做法：週期性動作用 <code>create_timer</code>，然後交給 spin。</b>
+</div>
+
+<h2>二、可直接複製貼上的指令與程式碼</h2>
+
+<h3>步驟 1：建 workspace 與 package</h3>
+<pre><code># --- 每個新終端機第一件事：source underlay ---
+source /opt/ros/humble/setup.bash
+
+# 建 workspace（ros2_ws 是慣例名稱，src 是 colcon 硬性規定的資料夾名）
+mkdir -p ~/ros2_ws/src
+cd ~/ros2_ws/src
+
+# 建一個 ament_python package
+# --node-name 會順便幫你生一個範例節點與 entry_point，第一次很好用
+ros2 pkg create --build-type ament_python \
+    --license Apache-2.0 \
+    my_py_pkg
+
+cd ~/ros2_ws
+tree src -L 3      # 沒有 tree 就 sudo apt install tree</code></pre>
+
+<p>你應該看到：</p>
+<pre><code>src/my_py_pkg/
+├── my_py_pkg/          &lt;-- 你的 Python 程式放這裡（跟 package 同名，不是巧合）
+│   └── __init__.py
+├── resource/my_py_pkg  &lt;-- ament 索引用的空檔，不要刪
+├── test/
+├── package.xml         &lt;-- ROS 相依宣告
+├── setup.cfg
+└── setup.py            &lt;-- entry_points 在這裡</code></pre>
+
+<h3>步驟 2：Publisher 節點</h3>
+<pre><code># 檔案：~/ros2_ws/src/my_py_pkg/my_py_pkg/publisher_node.py
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import String
+
+
+class TalkerNode(Node):
+    def __init__(self):
+        # 'talker' 是節點名稱，會出現在 ros2 node list
+        super().__init__('talker')
+
+        # create_publisher(訊息型別, topic 名稱, QoS depth)
+        # 10 = KEEP_LAST 佇列深度，訂閱者來不及收時最多留 10 筆
+        self.pub_ = self.create_publisher(String, 'chatter', 10)
+
+        self.counter_ = 0
+        # 每 0.5 秒呼叫一次 timer_callback（2 Hz）
+        self.timer_ = self.create_timer(0.5, self.timer_callback)
+
+        # get_logger() 是 ROS2 的 print，會帶時間戳與節點名，
+        # 而且能被 ros2 launch / rqt_console 收集，一律用它而不要用 print()
+        self.get_logger().info('Talker 已啟動，發佈到 /chatter')
+
+    def timer_callback(self):
+        msg = String()                      # 建一個空訊息物件
+        msg.data = f'hello ROS2 #{self.counter_}'   # 填 data 欄位
+        self.pub_.publish(msg)              # 送出
+        self.get_logger().info(f'發佈：{msg.data}')
+        self.counter_ += 1
+
+
+def main(args=None):
+    rclpy.init(args=args)       # 1. 啟動通訊層
+    node = TalkerNode()         # 2. 建節點
+    try:
+        rclpy.spin(node)        # 3. 交出控制權，直到 Ctrl+C
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()     # 4. 釋放
+        rclpy.shutdown()        # 5. 關閉
+
+
+if __name__ == '__main__':
+    main()</code></pre>
+
+<h3>步驟 3：Subscriber 節點</h3>
+<pre><code># 檔案：~/ros2_ws/src/my_py_pkg/my_py_pkg/subscriber_node.py
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import String
+
+
+class ListenerNode(Node):
+    def __init__(self):
+        super().__init__('listener')
+
+        # create_subscription(型別, topic 名稱, callback 函式, QoS depth)
+        # 注意 callback 不要加括號 —— 傳的是函式本身，不是呼叫結果
+        self.sub_ = self.create_subscription(
+            String, 'chatter', self.listener_callback, 10)
+
+        self.get_logger().info('Listener 已啟動，訂閱 /chatter')
+
+    def listener_callback(self, msg):
+        # 每收到一筆訊息，ROS2 會自動幫你呼叫這個函式
+        self.get_logger().info(f'收到：{msg.data}')
+
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = ListenerNode()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()</code></pre>
+
+<h3>步驟 4：改 setup.py 註冊執行檔</h3>
+<pre><code># 檔案：~/ros2_ws/src/my_py_pkg/setup.py
+# 只需要改 entry_points 這一段（其餘保持 ros2 pkg create 產生的樣子）
+
+    entry_points={
+        'console_scripts': [
+            'talker = my_py_pkg.publisher_node:main',
+            'listener = my_py_pkg.subscriber_node:main',
+        ],
+    },</code></pre>
+
+<h3>步驟 5：build 與執行</h3>
+<pre><code>cd ~/ros2_ws
+source /opt/ros/humble/setup.bash
+
+# --symlink-install：改 .py 不用重 build（強烈建議一律加）
+colcon build --symlink-install --packages-select my_py_pkg
+
+# build 完必須開新 shell 或重新 source overlay
+source ~/ros2_ws/install/setup.bash
+
+# 終端機 A
+ros2 run my_py_pkg talker
+
+# 終端機 B（記得也要 source 兩層！）
+source /opt/ros/humble/setup.bash
+source ~/ros2_ws/install/setup.bash
+ros2 run my_py_pkg listener</code></pre>
+
+<h3>步驟 6：驗證資料流（不要只看 log 就相信）</h3>
+<pre><code># 第三個終端機
+ros2 node list                 # 應該看到 /talker 和 /listener
+ros2 topic list                # 應該看到 /chatter
+ros2 topic info /chatter -v    # 看 publisher/subscriber 數量與 QoS
+ros2 topic hz /chatter         # 應該顯示約 2.0 Hz
+ros2 topic echo /chatter       # 直接看內容
+
+# 不用寫節點也能發訊息，除錯超好用：
+ros2 topic pub --once /chatter std_msgs/msg/String "{data: '手動注入'}"
+
+# 視覺化整張圖
+rqt_graph</code></pre>
+
+<h3>步驟 7：把 source 寫進 .bashrc（可選但方便）</h3>
+<pre><code>echo "source /opt/ros/humble/setup.bash" &gt;&gt; ~/.bashrc
+echo "source ~/ros2_ws/install/setup.bash" &gt;&gt; ~/.bashrc
+source ~/.bashrc
+
+# 代價：workspace 被刪或 build 失敗時，每開終端機都會噴
+# "No such file or directory"。看到這個訊息不要慌，重 build 就好。</code></pre>
+
+<h3>步驟 8：刻意弄壞它三次（今天最重要的練習）</h3>
+<pre><code># 故障 1：忘記 source overlay
+#   把 setup.bash 那兩行從 bashrc 註解掉，開新終端機直接 ros2 run
+#   預期：Package 'my_py_pkg' not found
+#   → 記住這個訊息 ＝「你沒 source」或「你根本沒 build 成功」
+
+# 故障 2：改了 entry_points 但沒重 build
+#   把 setup.py 的 'talker' 改成 'talker2'，不 build，直接 ros2 run my_py_pkg talker2
+#   預期：No executable found
+#   → --symlink-install 不涵蓋 setup.py 的變更，改 setup.py 一定要重 build
+
+# 故障 3：topic 名字打錯
+#   把 subscriber 的 'chatter' 改成 'chatter_'
+#   預期：兩支都不報錯，但 listener 永遠靜默
+#   → 這是 ROS2 最陰險的故障：不會報錯，只是沒反應
+#   → 診斷 SOP：ros2 topic info /chatter -v 看 subscription count 是不是 0</code></pre>
+
+<h2>三、今日指定資源</h2>
+<ol>
+<li><b>Articulated Robotics</b> — "Making a ROS2 Workspace &amp; Package"（ROS2 系列第 3 集左右）。他會把 build/install/src 的關係畫出來，看完再回頭看自己的資料夾會清楚很多。<span class="tag">影片 25 分</span></li>
+<li><b>ROS2 Humble 官方教學</b> — Tutorials → Beginner: Client Libraries → <i>Creating your first ROS 2 package</i> 與 <i>Writing a simple publisher and subscriber (Python)</i>。<b>照著打一遍，不要複製貼上</b>，手打才會記得 entry_points 的四段結構。<span class="tag">文件 2 節</span></li>
+<li><b>colcon 官方文件</b> — <i>colcon documentation → Quick start</i> 與 <i>Tutorials → Using colcon to build packages</i>。只需讀懂「為什麼要在 workspace root 執行」與 <code>--symlink-install</code> 那段。<span class="tag">文件 略讀</span></li>
+<li><b>rclpy API 文件</b> — 查一次 <code>Node.create_publisher</code> 與 <code>Node.create_subscription</code> 的簽名。今天不用背，但要知道去哪裡查。<span class="tag">參考</span></li>
+</ol>
+
+<h2>四、✅ 今日驗收清單</h2>
+<ul class="check">
+<li><code>ros2 node list</code> 同時看得到 <code>/talker</code> 與 <code>/listener</code>，且 listener 終端機持續印出遞增的編號。</li>
+<li><code>ros2 topic hz /chatter</code> 顯示約 <code>2.0</code>（誤差 ±0.1 內）。</li>
+<li>你能<b>不看筆記</b>說出 <code>src/</code>、<code>build/</code>、<code>install/</code> 各是誰產生的、哪個可以安全刪除。</li>
+<li>你成功重現了上面「故障 1／2／3」三種錯誤，且能說出各自的錯誤訊息長什麼樣。</li>
+<li>你能用一句話解釋 <code>source install/setup.bash</code> 改了哪些環境變數（至少講出 <code>AMENT_PREFIX_PATH</code> 和 <code>PYTHONPATH</code>）。</li>
+</ul>
+
+<h2>五、🎓 助教筆記：學生今天最會卡的 5 個點</h2>
+
+<div class="box">
+<h4>① <code>Package 'my_py_pkg' not found</code></h4>
+<p><b>真正原因（依機率排序）：</b>(a) 沒 source overlay；(b) 在錯誤的目錄 build，install/ 根本沒生出來；(c) build 其實失敗了但學生只看最後一行沒看到紅字。</p>
+<p><b>診斷指令：</b></p>
+<pre><code>echo $AMENT_PREFIX_PATH | tr ':' '\n'   # 有沒有你的 ros2_ws/install？
+ls ~/ros2_ws/install/                    # 有沒有 my_py_pkg 資料夾？
+ros2 pkg list | grep my_py_pkg           # ROS 認不認得</code></pre>
+<p><b>解法：</b><code>cd ~/ros2_ws &amp;&amp; colcon build --symlink-install</code> 然後<b>開一個全新終端機</b>再 source。叫學生開新終端機比叫他 source 更保險，因為舊 shell 可能有髒環境變數。</p>
+</div>
+
+<div class="box">
+<h4>② <code>No executable found</code></h4>
+<p><b>真正原因：</b>entry_points 那行的四個欄位其中之一打錯——最常見是「檔名寫成 <code>publisher_node.py</code>（多了 .py）」或「冒號寫成點」。第二常見是改完 setup.py 沒重 build。</p>
+<p><b>診斷指令：</b></p>
+<pre><code># 直接去看 install 底下到底生出了什麼可執行檔
+ls ~/ros2_ws/install/my_py_pkg/lib/my_py_pkg/
+# 若是空的 → entry_points 沒生效
+grep -A5 "console_scripts" ~/ros2_ws/src/my_py_pkg/setup.py</code></pre>
+<p><b>解法：</b>修正 <code>'指令名 = package名.檔名不含py:函式名'</code>，然後<b>一定要重 build</b>。</p>
+</div>
+
+<div class="box">
+<h4>③ 兩支節點都活著，但 listener 完全沒反應</h4>
+<p><b>真正原因（三選一）：</b>(a) topic 名字不一致（大小寫、多底線、有沒有前導斜線）；(b) 訊息型別不一致（一邊 <code>String</code> 一邊 <code>Int32</code>）；(c) QoS 不相容（今天用預設不太會遇到，但 Day 2 講過的 sensor QoS 在 Day 8 接 <code>/scan</code> 時會爆）。</p>
+<p><b>診斷 SOP（照這個順序，不要跳）：</b></p>
+<pre><code>ros2 topic list                  # 是不是有兩個長很像的 topic？
+ros2 topic info /chatter -v      # Pub count / Sub count 是不是各為 1？
+ros2 topic echo /chatter         # 外部收得到嗎？收得到 → 問題在 subscriber
+ros2 node info /listener         # 它到底訂了什麼</code></pre>
+<p><b>助教話術：</b>「ROS2 不會因為你名字打錯而報錯，它會很有禮貌地讓你等一輩子。所以<b>沒反應</b>比<b>報錯</b>更難查，一定要用 <code>topic info -v</code> 對數字。」</p>
+</div>
+
+<div class="box">
+<h4>④ <code>colcon build</code> 出現 <code>SetuptoolsDeprecationWarning</code> 或 <code>error in ... setup command</code></h4>
+<p><b>真正原因：</b>Ubuntu 22.04 上 pip 升級過 setuptools（&gt;=59 之後對 <code>setup.py install</code> 有棄用警告），與 ROS2 Humble 的 ament_python 相衝。<b>只是 Warning 的話可以完全無視</b>，但學生會被紅字嚇到。</p>
+<p><b>診斷指令：</b></p>
+<pre><code>python3 -c "import setuptools; print(setuptools.__version__)"</code></pre>
+<p><b>解法：</b>若真的 build 失敗（不是 warning），降版：<code>pip3 install setuptools==58.2.0</code>。<b>提醒學生不要無腦 <code>pip install --upgrade</code> 任何東西</b>，這是 ROS 環境爛掉的頭號原因。</p>
+</div>
+
+<div class="box">
+<h4>⑤ 明明 build 成功，跑起來卻是<b>舊版程式</b></h4>
+<p><b>真正原因：</b>沒加 <code>--symlink-install</code>，install/ 裡是舊的複製品；或曾經在 <code>src/</code> 裡誤 build 過，產生了第二組 install/ 造成環境混亂。</p>
+<p><b>診斷指令：</b></p>
+<pre><code>ls -la ~/ros2_ws/install/my_py_pkg/lib/python3.10/site-packages/my_py_pkg/
+# 若是 -&gt; 指向 src 的箭頭，代表 symlink 生效；若是實體檔，就是複製品
+
+find ~/ros2_ws/src -maxdepth 2 -name "install" -o -maxdepth 2 -name "build"
+# 有東西 = 曾在 src 裡誤 build</code></pre>
+<p><b>核彈級解法（教學現場最常用）：</b></p>
+<pre><code>cd ~/ros2_ws
+rm -rf build install log
+colcon build --symlink-install
+# 然後開新終端機重新 source</code></pre>
+<p><b>助教話術：</b>「ROS2 的『重開機』就是 <code>rm -rf build install log</code>。這三個資料夾都是機器生的，刪掉不會弄丟任何你寫的東西——但 <code>src/</code> 千萬別碰。」</p>
+</div>
+
+<h2>六、回報格式</h2>
+<div class="goal">
+今天結束後，請回覆我以下四項：
+<ol style="margin:8px 0 0">
+<li><b>完成了什麼</b>（驗收清單勾了幾項）</li>
+<li><b>卡在哪</b>——請貼<b>完整錯誤訊息</b>，不要只寫「跑不動」</li>
+<li><b>沒懂的概念</b>（例如「overlay 到底是什麼還是不太懂」）</li>
+<li><b>實際花的時間</b>（我會據此調整 Day 4 的份量）</li>
+</ol>
+</div>
+
+<footer>
+<a href="index.html">← 回索引</a>　·　Physical AI 助教特訓 Day 3／30　·　Ubuntu 22.04 · ROS2 Humble · Python 3.10
+</footer>
+
+</div></body>
+</html>
