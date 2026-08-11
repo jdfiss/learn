@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Day 1｜Linux 求生 + 安裝 ROS2 Humble + turtlesim 觀察資料流</title>
+<style>
+:root{color-scheme:light}
+*{box-sizing:border-box}
+body{margin:0;background:#fbfbf9;color:#2c2a26;
+font-family:-apple-system,"Segoe UI","PingFang TC","Microsoft JhengHei",sans-serif;
+line-height:1.8;font-size:16px}
+.wrap{max-width:900px;margin:0 auto;padding:44px 22px 90px}
+h1{font-family:Georgia,"Noto Serif TC",serif;font-size:30px;margin:0 0 8px;font-weight:700;line-height:1.35}
+.meta{color:#6b6a63;font-size:14px;margin:0 0 28px}
+h2{font-size:21px;margin:44px 0 12px;padding-bottom:8px;border-bottom:2px solid #e4e3dc}
+h3{font-size:17px;margin:28px 0 8px;color:#1f4f6b}
+h4{font-size:15px;margin:18px 0 6px;color:#5a5852}
+p{margin:10px 0}
+ul,ol{margin:10px 0;padding-left:24px}
+li{margin:6px 0}
+code{background:#f0efe9;padding:1px 5px;border-radius:3px;font-size:14px;
+font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace}
+pre{background:#1e1f26;color:#e6e6e6;padding:16px 18px;border-radius:8px;overflow-x:auto;
+font-size:13.5px;line-height:1.6;margin:12px 0}
+pre code{background:none;color:inherit;padding:0;font-size:13.5px}
+.goal{background:#eef5ef;border-left:4px solid #4a8a5c;padding:14px 18px;border-radius:0 6px 6px 0;margin:16px 0}
+.box{background:#fff;border:1px solid #e4e3dc;border-radius:8px;padding:16px 20px;margin:16px 0}
+.warn{background:#fdf3e7;border-left:4px solid #d08b2c;padding:12px 18px;border-radius:0 6px 6px 0;margin:14px 0}
+.mis{background:#fbeeee;border-left:4px solid #b95555;padding:12px 18px;border-radius:0 6px 6px 0;margin:14px 0;font-size:15px}
+.mis strong{color:#9c3b3b}
+table{border-collapse:collapse;width:100%;margin:14px 0;font-size:14.5px}
+th,td{border:1px solid #e4e3dc;padding:8px 10px;text-align:left;vertical-align:top}
+th{background:#f4f3ee}
+.sched{font-size:15px}
+.sched b{color:#1f4f6b}
+.check li{list-style:none;margin:10px 0}
+.check{padding-left:2px}
+.check input{margin-right:10px;transform:scale(1.2)}
+footer{margin-top:56px;padding-top:18px;border-top:1px solid #e4e3dc;font-size:14px;color:#6b6a63}
+footer a{color:#1f4f6b}
+.tag{display:inline-block;background:#1f4f6b;color:#fff;font-size:12px;padding:2px 9px;border-radius:11px;margin-right:8px;vertical-align:2px}
+@media(max-width:640px){.wrap{padding:30px 15px 70px}h1{font-size:24px}pre{font-size:12.5px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Day 1｜Linux 求生 + 安裝 ROS2 Humble + turtlesim 觀察資料流</h1>
+<p class="meta"><span class="tag">Week 1 · 起步</span>2026-08-05（星期三）· Physical AI 助教特訓 Day 1 / 30</p>
+
+<div class="goal">
+<b>今日目標</b>：今天結束時，你要有一台<b>能用的 ROS2 開發機</b>——終端機不再讓你害怕、<code>ros2</code> 指令打得出來、並且能用 turtlesim 親眼「看見」兩個程式之間的資料流動，還能解釋那些資料是怎麼跑的。
+</div>
+
+<h2>先講清楚：ROS2 到底是什麼</h2>
+<p>ROS 的全名是 Robot Operating System，但<b>它不是作業系統</b>——這是新手第一個誤解。你的作業系統還是 Ubuntu。</p>
+<p><b>比喻</b>：把機器人想成一間餐廳。廚房（馬達控制）、外場（感測器）、櫃檯（決策）各自是獨立的員工，各做各的事。ROS2 是這間餐廳的<b>對講系統與出單機</b>——它定義了「誰喊什麼、誰聽什麼、話怎麼傳」，但它自己不炒菜。</p>
+<p>技術上的正確說法：ROS2 是一套<b>中介軟體（middleware）+ 工具鏈 + 套件生態</b>。底層通訊靠 DDS（Data Distribution Service），這是航太與國防用了很多年的工業標準——這也是為什麼 ROS2 開機後不需要像 ROS1 那樣先跑一個 <code>roscore</code>：DDS 讓節點自己在網路上「互相發現」。</p>
+
+<div class="warn"><b>版本鎖定，這 30 天都不要改</b><br>
+Ubuntu 22.04 LTS ＋ ROS2 Humble Hawksbill ＋ Python 3.10 ＋ Gazebo Classic 11。<br>
+原因：ROS2 每個版本綁定特定 Ubuntu 版本（Humble 只支援 22.04），第三方套件（Nav2、MoveIt2、TurtleBot3）的教學與相依也都以此為準。<b>混版本是新手 90% 痛苦的來源</b>，你身為助教更要能一眼認出學生是不是裝錯版本。</div>
+
+<h2>時段安排（總計約 5 小時）</h2>
+<div class="box sched">
+<p><b>上午（約 1.5 小時）· Linux 求生</b><br>
+不求精通，只求「不會被卡住」。20 個指令 + 三個觀念（路徑、權限、環境變數）。</p>
+<p><b>下午（約 2 小時）· 安裝 ROS2 Humble</b><br>
+照步驟裝，<b>每一步都看懂在做什麼</b>——因為未來你會看著學生的螢幕，判斷他卡在第幾步。</p>
+<p><b>晚上（約 1.5 小時）· turtlesim 觀察資料流</b><br>
+用一隻烏龜把 Node / Topic 的概念「看」出來，這是明天 Day 2 五大概念的直觀基礎。</p>
+</div>
+
+<h2>1. 上午：Linux 求生包</h2>
+
+<h3>1-1　路徑：絕對路徑與相對路徑</h3>
+<p>Linux 的檔案系統是<b>一棵樹</b>，樹根是 <code>/</code>。沒有 C 槽 D 槽。</p>
+<ul>
+<li><code>/</code>　根目錄，所有東西的起點</li>
+<li><code>~</code>　你的家目錄，實際上是 <code>/home/你的帳號</code></li>
+<li><code>.</code>　目前目錄　<code>..</code>　上一層目錄</li>
+<li><code>/opt/ros/humble/</code>　等一下 ROS2 會裝在這裡（<code>/opt</code> 慣例上放「第三方大型套件」）</li>
+</ul>
+<div class="mis"><strong>常見誤解</strong>：「我把檔案放桌面就好」。Linux 開發請一律把程式碼放在 <code>~/</code> 底下的自建目錄（例如 <code>~/ros2_ws</code>）。路徑裡有中文或空白，之後 <code>colcon build</code> 會出現各種莫名其妙的錯誤。<b>路徑只用英文、數字、底線</b>。</div>
+
+<h3>1-2　20 個你今天就會用到的指令</h3>
+<pre><code># --- 移動與觀察 ---
+pwd                     # 我現在在哪
+ls -la                  # 列出所有檔案，含隱藏檔（開頭是 . 的）與權限
+cd ~/ros2_ws            # 切換目錄
+cd -                    # 回到上一個待過的目錄
+tree -L 2               # 樹狀顯示兩層（沒有的話 sudo apt install tree）
+
+# --- 檔案操作 ---
+mkdir -p a/b/c          # -p = 中間層不存在就一起建
+cp 來源 目的            # 複製；cp -r 是整個資料夾
+mv 來源 目的            # 移動 / 改名（同一個指令）
+rm 檔案                 # 刪除；rm -rf 資料夾 = 強制遞迴刪，打錯會哭
+cat 檔案                # 整份印出來
+less 檔案               # 分頁看（q 離開）
+nano 檔案               # 最簡單的編輯器（Ctrl+O 存檔、Ctrl+X 離開）
+
+# --- 找東西（助教最常用）---
+grep -rn "關鍵字" .     # 在目前目錄底下遞迴搜尋含關鍵字的行，並顯示行號
+find . -name "*.launch.py"
+which ros2              # ros2 這個指令實際上是哪個檔案
+history | grep colcon   # 我剛剛打過什麼 colcon 指令
+
+# --- 系統與程序 ---
+htop                    # 看 CPU / 記憶體（q 離開）
+nvidia-smi              # 看 GPU 與驅動版本
+ps aux | grep ros       # 有哪些 ros 相關程序還活著
+kill -9 PID             # 砍掉卡死的程序
+df -h                   # 磁碟還剩多少</code></pre>
+
+<h3>1-3　三個必懂觀念</h3>
+
+<h4>(a) 權限與 sudo</h4>
+<p><code>ls -la</code> 看到的 <code>-rw-r--r--</code> 分成三組：擁有者 / 群組 / 其他人，各自的讀(r)寫(w)執行(x)。<code>sudo</code> 是「以管理員身分執行這一行」。</p>
+<div class="warn"><b>鐵律</b>：安裝系統套件用 <code>sudo apt</code>，但<b>絕對不要用 <code>sudo</code> 跑 <code>colcon build</code> 或 <code>ros2 run</code></b>。一旦用了，build 產生的檔案會變成 root 擁有，之後你自己的帳號改不動，只能全部刪掉重來。這是學生第一週最常見的自殘方式之一。</div>
+
+<h4>(b) 環境變數與 <code>source</code></h4>
+<p><b>它解決什麼問題</b>：你打 <code>ros2</code>，電腦怎麼知道去哪裡找這支程式？答案是環境變數 <code>PATH</code>——一份「要去哪些資料夾找指令」的清單。</p>
+<p><b>比喻</b>：環境變數像是你交給助理的<b>一張便條紙</b>，上面寫「工具在這幾個抽屜、零件在那幾個櫃子」。<code>source setup.bash</code> 就是<b>把新的抽屜位置寫上便條紙</b>。</p>
+<p>關鍵在於：<b>便條紙是「每個終端機視窗各一張」</b>。你在 A 視窗 source 過，B 視窗完全不知道。這解釋了 90% 的「我明明裝好了為什麼說找不到」。</p>
+<pre><code># 看幾個之後天天要用的變數
+printenv ROS_DISTRO          # humble
+printenv AMENT_PREFIX_PATH   # ROS2 會去哪些地方找 package
+printenv ROS_DOMAIN_ID       # 空的就是 0
+
+# source 只影響「當下這個終端機」
+source /opt/ros/humble/setup.bash</code></pre>
+
+<h4>(c) <code>~/.bashrc</code></h4>
+<p>每次開新終端機，bash 會自動執行 <code>~/.bashrc</code>。所以把常用的 source 寫進去，就不用每次手打。</p>
+<div class="mis"><strong>常見誤解</strong>：「全部塞進 .bashrc 最方便」。前期可以，但等你有兩個以上 workspace（例如同時裝了 Nav2 教學版與自己的），自動 source 全部會造成<b>環境污染</b>——ROS2 會找到錯的那份 package，而且錯誤訊息完全不會告訴你原因。<b>助教一定要會問：「你的 .bashrc 裡有幾行 source？貼給我看。」</b></p></div>
+
+<h2>2. 下午：安裝 ROS2 Humble</h2>
+<p>照官方步驟走。每一段我都說明它在做什麼——因為你之後要幫學生判斷卡在哪一步。</p>
+
+<h3>2-0　先確認你的機器</h3>
+<pre><code>lsb_release -a          # 必須是 Ubuntu 22.04
+python3 --version       # 必須是 3.10.x
+nvidia-smi              # 有輸出代表 NVIDIA 驅動正常；沒有的話先裝驅動再說</code></pre>
+<div class="warn">如果 <code>nvidia-smi</code> 沒反應：<code>ubuntu-drivers devices</code> 看建議版本，再 <code>sudo apt install nvidia-driver-535</code>（或建議的版本），<b>裝完要重開機</b>。Day 20 的 Isaac Sim 完全依賴這個，今天就處理掉。</div>
+
+<h3>2-1　設定語系（避免之後中文亂碼）</h3>
+<pre><code>locale                                  # 先看現況
+sudo apt update &amp;&amp; sudo apt install -y locales
+sudo locale-gen en_US en_US.UTF-8
+sudo update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
+export LANG=en_US.UTF-8
+locale                                  # 確認變成 UTF-8</code></pre>
+
+<h3>2-2　加入 ROS2 的套件來源</h3>
+<pre><code># 開啟 universe 軟體庫（ROS2 的相依有些在這裡）
+sudo apt install -y software-properties-common
+sudo add-apt-repository universe
+
+# 下載並安裝 ROS2 的 GPG 金鑰（用來驗證套件沒被竄改）
+sudo apt update &amp;&amp; sudo apt install -y curl
+sudo curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
+  -o /usr/share/keyrings/ros-archive-keyring.gpg
+
+# 把 ROS2 的來源寫進 apt 的清單
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(. /etc/os-release &amp;&amp; echo $UBUNTU_CODENAME) main" \
+  | sudo tee /etc/apt/sources.list.d/ros2.list &gt; /dev/null</code></pre>
+<p><b>這一步在做什麼</b>：apt 預設只認得 Ubuntu 官方的軟體倉庫。上面三段是（1）開啟社群倉庫、（2）安裝一把「驗章用的公鑰」、（3）告訴 apt「還有一個叫 packages.ros.org 的倉庫，它的東西用剛剛那把鑰匙驗」。學生若跳過金鑰那步，下一步 <code>apt update</code> 就會噴 <code>NO_PUBKEY</code>。</p>
+
+<h3>2-3　安裝本體</h3>
+<pre><code>sudo apt update
+sudo apt upgrade -y                 # 建議先更新系統，避免相依衝突
+
+# desktop 版：核心 + rviz2 + demo + turtlesim，一次到位
+sudo apt install -y ros-humble-desktop
+
+# 開發工具（colcon、rosdep 等等，之後每天都要用）
+sudo apt install -y ros-dev-tools python3-colcon-common-extensions</code></pre>
+<p><code>ros-humble-desktop</code> 約 2–3 GB，網路慢的話會跑很久，是正常的。</p>
+
+<h3>2-4　初始化 rosdep</h3>
+<pre><code>sudo rosdep init        # 若說 already exists，代表做過了，直接跳下一行
+rosdep update           # 這行「不要」加 sudo</code></pre>
+<p><b>rosdep 是什麼</b>：一個「相依翻譯機」。package.xml 裡寫的是 ROS 的抽象名稱（例如 <code>rclpy</code>），rosdep 負責把它翻成當前系統該裝的實際 apt 套件名。日後在別人的 workspace 根目錄下 <code>rosdep install --from-paths src -y --ignore-src</code>，就會一次補齊所有缺的相依。</p>
+
+<h3>2-5　設定環境並驗證</h3>
+<pre><code># 寫進 .bashrc，以後開終端機自動生效
+echo "source /opt/ros/humble/setup.bash" &gt;&gt; ~/.bashrc
+source ~/.bashrc
+
+# 驗證三連發
+printenv ROS_DISTRO         # humble
+ros2 --help                 # 有輸出就是裝好了
+ros2 doctor                 # 環境健檢，有 warning 先讀懂再決定要不要理</code></pre>
+
+<h3>2-6　最終驗證：跑官方 demo</h3>
+<p>開兩個終端機（快捷鍵 <code>Ctrl+Alt+T</code>）：</p>
+<pre><code># 終端機 A
+ros2 run demo_nodes_cpp talker
+
+# 終端機 B
+ros2 run demo_nodes_py listener</code></pre>
+<p>B 應該印出 <code>I heard: [Hello World: 1]</code>。看到這行，你的 ROS2 就活著了。注意這裡刻意一個是 C++、一個是 Python——它們能對話，正是因為中間隔著 DDS 這層標準。</p>
+
+<h2>3. 晚上：turtlesim 觀察資料流</h2>
+<p>turtlesim 是官方的教學玩具，但它的價值不在「好玩」，在於它是<b>最小的完整 ROS2 系統</b>：有節點、有 topic、有 service、有 parameter。今天請你用「看資料流」的心態玩它。</p>
+
+<h3>3-1　啟動</h3>
+<pre><code># 終端機 A：模擬視窗
+ros2 run turtlesim turtlesim_node
+
+# 終端機 B：鍵盤控制（游標放這個視窗才會動）
+ros2 run turtlesim turtle_teleop_key</code></pre>
+
+<h3>3-2　把資料流「挖」出來</h3>
+<pre><code># 開第三個終端機
+
+ros2 node list                       # 有哪些節點在跑
+ros2 node info /turtlesim            # 這個節點發什麼、收什麼、開了哪些服務
+
+ros2 topic list                      # 有哪些 topic
+ros2 topic list -t                   # 順便顯示每個 topic 的訊息型別
+
+# 看實際資料在流什麼
+ros2 topic echo /turtle1/cmd_vel     # 按鍵盤時這裡會噴出速度指令
+ros2 topic echo /turtle1/pose        # 烏龜的位置，一直在更新
+
+# 這個 topic 的訊息長什麼樣
+ros2 interface show geometry_msgs/msg/Twist
+
+# 發多快
+ros2 topic hz /turtle1/pose          # 約 62 Hz
+
+# 誰在發、誰在收
+ros2 topic info /turtle1/cmd_vel --verbose</code></pre>
+
+<h3>3-3　不用鍵盤，直接用指令開烏龜</h3>
+<pre><code># 發一次速度指令（--once）
+ros2 topic pub --once /turtle1/cmd_vel geometry_msgs/msg/Twist \
+  "{linear: {x: 2.0, y: 0.0, z: 0.0}, angular: {x: 0.0, y: 0.0, z: 1.8}}"
+
+# 持續以 1 Hz 發（讓牠一直繞圈；Ctrl+C 停）
+ros2 topic pub -r 1 /turtle1/cmd_vel geometry_msgs/msg/Twist \
+  "{linear: {x: 2.0}, angular: {z: 1.8}}"</code></pre>
+<div class="warn"><b>觀察重點</b>：停止發佈後烏龜會停下來，因為 turtlesim 內建了「一段時間沒收到指令就停」的保護。真實機器人的底盤驅動也幾乎都有這個機制，叫 <b>watchdog / command timeout</b>。學生問「為什麼我一放開鍵盤車就停了」，答案就是這個，不是程式壞了。</div>
+
+<h3>3-4　Service 與 Parameter 初體驗（明天 Day 2 會展開）</h3>
+<pre><code># Service：呼叫一次、等回覆。生一隻新烏龜出來
+ros2 service list
+ros2 service type /spawn
+ros2 service call /spawn turtlesim/srv/Spawn "{x: 2.0, y: 2.0, theta: 0.0, name: 'turtle2'}"
+
+# Parameter：節點的旋鈕，可以即時改
+ros2 param list
+ros2 param get /turtlesim background_b
+ros2 param set /turtlesim background_r 255    # 背景馬上變色</code></pre>
+
+<h3>3-5　Remapping：同一支程式控制不同烏龜</h3>
+<pre><code># teleop 預設發到 /turtle1/cmd_vel，把它改導到 turtle2
+ros2 run turtlesim turtle_teleop_key --ros-args \
+  --remap /turtle1/cmd_vel:=/turtle2/cmd_vel</code></pre>
+<p>這是 ROS 最重要的設計哲學的第一次體現：<b>程式不需要改一行、不需要重新編譯，只要換接線就能用在不同地方</b>。Day 4 會正式講。</p>
+
+<h3>3-6　把資料流畫出來</h3>
+<pre><code>rqt_graph</code></pre>
+<p>左上角把過濾條件從 <code>Nodes only</code> 改成 <b><code>Nodes/Topics (all)</code></b>，並取消勾選 <code>Hide: Dead sinks / Leaf topics</code>，你會看到橢圓（節點）與方框（topic）連成的圖。<b>請截圖存起來</b>——這張圖就是你未來對學生解釋「ROS 是什麼」的第一張投影片。</p>
+
+<h2>4. 今日指定資源</h2>
+<ol>
+<li><b>ROS2 Humble 官方文件</b>《Installation → Ubuntu (deb packages)》——今天的安裝就照這一頁，請對照著看，確認你懂每一步。<br>接著《Tutorials → Beginner: CLI tools → <i>Understanding nodes</i> / <i>Understanding topics</i>》這兩節，今晚的操作幾乎就是它們。</li>
+<li><b>Articulated Robotics</b>（YouTube，Josh Newans）〈<i>Getting Ready to Build Robots with ROS</i>〉系列的第 1–2 集：他對「ROS 是什麼、為什麼要有它」的說明是我看過最白話的，助教講解時可以直接借用他的比喻。</li>
+<li><b>The Missing Semester of Your CS Education</b>（MIT）第 1 講 <i>The Shell</i>——只看前 30 分鐘，補足 Linux 觀念。你不需要成為 shell 高手，但要能在學生的終端機前面不慌。</li>
+</ol>
+
+<h2>5. ✅ 今日驗收清單</h2>
+<ul class="check">
+<li><input type="checkbox"> <code>printenv ROS_DISTRO</code> 印出 <code>humble</code>，且 <code>ros2 doctor</code> 沒有紅色錯誤</li>
+<li><input type="checkbox"> talker / listener 兩個終端機成功對話</li>
+<li><input type="checkbox"> 你能用 <code>ros2 topic pub</code>（不碰鍵盤）讓烏龜畫一個圓</li>
+<li><input type="checkbox"> 你能說出 <code>/turtle1/cmd_vel</code> 的訊息型別，並解釋 linear 與 angular 各是什麼意思</li>
+<li><input type="checkbox"> rqt_graph 截圖存檔，而且你能對著圖講出「誰發、誰收、發什麼」</li>
+</ul>
+
+<h2>6. 🎓 助教筆記：Day 1 學生最會卡的地方</h2>
+<p>安裝日是<b>整門課求助率最高的一天</b>。你要能在 30 秒內分類問題。先背這句診斷開場白：<b>「請你貼三樣東西給我：<code>lsb_release -a</code>、你剛剛打的完整指令、完整錯誤訊息。」</b></p>
+
+<h3>卡點 1：<code>apt update</code> 出現 GPG / NO_PUBKEY 錯誤</h3>
+<div class="box">
+<p><b>錯誤訊息</b>：<code>The following signatures couldn't be verified because the public key is not available: NO_PUBKEY F42ED6FBAB17C654</code></p>
+<p><b>原因</b>：金鑰那一步失敗或被跳過（常見於網路擋 raw.githubusercontent.com）。</p>
+<p><b>診斷</b>：<code>ls -l /usr/share/keyrings/ros-archive-keyring.gpg</code>（檔案在不在、大小是不是 0）</p>
+<p><b>解法</b>：重跑 curl 那一行；若下載到 0 bytes，代表網路被擋，改用手機熱點或校內鏡像站。</p>
+</div>
+
+<h3>卡點 2：<code>Unable to locate package ros-humble-desktop</code></h3>
+<div class="box">
+<p><b>三個可能，照順序問</b>：<br>
+① Ubuntu 版本不是 22.04 →<code>lsb_release -a</code>（20.04 對應 Foxy、24.04 對應 Jazzy，裝不到 Humble 是正常的）<br>
+② 加完來源後<b>忘了再 <code>sudo apt update</code></b>（最常見）<br>
+③ <code>/etc/apt/sources.list.d/ros2.list</code> 內容寫錯 → <code>cat</code> 出來看，裡面的 codename 應該是 <code>jammy</code></p>
+</div>
+
+<h3>卡點 3：<code>ros2: command not found</code></h3>
+<div class="box">
+<p><b>診斷</b>：<code>ls /opt/ros/humble/</code> —— 有東西代表<b>裝好了，只是沒 source</b>；沒東西代表根本沒裝成功。</p>
+<p><b>解法</b>：<code>source /opt/ros/humble/setup.bash</code>。若已經寫進 .bashrc 卻還是不行，通常是（a）寫進去之後沒開新終端機，或（b）寫成了 <code>setup.sh</code> / 路徑打錯 → <code>tail -5 ~/.bashrc</code> 看實際內容。</p>
+<p><b>助教話術</b>：「你這個是『安裝問題』還是『環境問題』？先 <code>ls /opt/ros/humble</code>，這一行就能分家。」</p>
+</div>
+
+<h3>卡點 4：turtlesim 視窗開不出來</h3>
+<div class="box">
+<p><b>錯誤訊息</b>：<code>qt.qpa.plugin: Could not load the Qt platform plugin "xcb"</code> 或 <code>Authorization required, but no authorization protocol specified</code></p>
+<p><b>原因</b>：沒有圖形介面環境。常見於（a）用 SSH 連遠端沒開 X11 forwarding、（b）用 WSL 但版本太舊沒有 WSLg、（c）跑在純 server 版 Ubuntu。</p>
+<p><b>診斷</b>：<code>echo $DISPLAY</code>（空的就是沒有 GUI）</p>
+<p><b>解法</b>：SSH 加 <code>-X</code>；WSL 請升級到 WSL2 + Windows 11（有 WSLg）。<b>本課程強烈建議實體安裝 Ubuntu 或雙系統</b>，因為 Day 20 的 Isaac Sim 需要真正的 GPU 直通，WSL 會很痛苦。這件事要在開課第一天就講清楚。</p>
+</div>
+
+<h3>卡點 5：<code>rosdep init</code> 說 already exists</h3>
+<div class="box">
+<p><b>訊息</b>：<code>ERROR: default sources list file already exists</code></p>
+<p><b>這不是錯誤</b>，代表之前已經初始化過。直接跑 <code>rosdep update</code> 即可。<br>
+反過來，如果學生對 <code>rosdep update</code> 加了 <code>sudo</code>，會把快取寫到 root 的家目錄，之後自己的帳號讀不到 → <code>rm -rf ~/.ros/rosdep</code> 再不加 sudo 重跑。</p>
+</div>
+
+<h3>卡點 6：兩個人的 topic 互相看到</h3>
+<div class="box">
+<p><b>症狀</b>：教室裡學生的 <code>ros2 topic list</code> 出現同學的 topic，或烏龜莫名其妙自己動。</p>
+<p><b>原因</b>：DDS 預設在同網段自動發現，<code>ROS_DOMAIN_ID</code> 沒設就都是 0。</p>
+<p><b>解法（開課第一天就要統一規定）</b>：
+<pre><code>echo "export ROS_DOMAIN_ID=座號" &gt;&gt; ~/.bashrc   # 取 0–101
+# 或直接關在本機，最省事
+echo "export ROS_LOCALHOST_ONLY=1" &gt;&gt; ~/.bashrc</code></pre>
+</div>
+
+<h2>7. 回報格式</h2>
+<div class="goal">
+今天請回覆我四件事：
+<ol style="margin-bottom:0">
+<li><b>完成了什麼</b>（驗收清單五項各過了沒）</li>
+<li><b>卡在哪</b>——貼<b>完整</b>錯誤訊息與你當時打的指令</li>
+<li><b>哪個概念沒懂</b>（例如 source 到底在做什麼、DDS 是什麼）</li>
+<li><b>實際花了多少時間</b></li>
+</ol>
+</div>
+<p style="font-size:14.5px;color:#6b6a63">明天 Day 2 會把今天「看到」的東西正式命名：Node / Topic / Service / Action / Parameter 五大概念，加上 QoS。今天的 turtlesim 請留著，明天還要用。</p>
+
+<footer><a href="index.html">← 回索引</a>　·　Ubuntu 22.04 · ROS2 Humble · Gazebo Classic 11 · Python 3.10</footer>
+
+</div>
+</body>
+</html>
