@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Day 4｜自訂 msg（ament_cmake）+ Launch 檔 + Remapping + Parameter YAML</title>
+<style>
+:root{color-scheme:light}
+*{box-sizing:border-box}
+body{margin:0;background:#fbfbf9;color:#2c2a26;
+font-family:-apple-system,"Segoe UI","PingFang TC","Microsoft JhengHei",sans-serif;
+line-height:1.8;font-size:16px}
+.wrap{max-width:900px;margin:0 auto;padding:44px 22px 90px}
+h1{font-family:Georgia,"Noto Serif TC",serif;font-size:30px;margin:0 0 8px;font-weight:700;line-height:1.35}
+.meta{color:#6b6a63;font-size:14px;margin:0 0 28px}
+h2{font-size:21px;margin:44px 0 12px;padding-bottom:8px;border-bottom:2px solid #e4e3dc}
+h3{font-size:17px;margin:28px 0 8px;color:#1f4f6b}
+h4{font-size:15px;margin:18px 0 6px;color:#5a5852}
+p{margin:10px 0}
+ul,ol{margin:10px 0;padding-left:24px}
+li{margin:6px 0}
+code{background:#f0efe9;padding:1px 5px;border-radius:3px;font-size:14px;
+font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace}
+pre{background:#1e1f26;color:#e6e6e6;padding:16px 18px;border-radius:8px;overflow-x:auto;
+font-size:13.5px;line-height:1.6;margin:12px 0}
+pre code{background:none;color:inherit;padding:0;font-size:13.5px}
+.goal{background:#eef5ef;border-left:4px solid #4a8a5c;padding:14px 18px;border-radius:0 6px 6px 0;margin:16px 0}
+.box{background:#fff;border:1px solid #e4e3dc;border-radius:8px;padding:16px 20px;margin:16px 0}
+.warn{background:#fdf3e7;border-left:4px solid #d08b2c;padding:12px 18px;border-radius:0 6px 6px 0;margin:14px 0}
+.mis{background:#fbeeee;border-left:4px solid #b95555;padding:12px 18px;border-radius:0 6px 6px 0;margin:14px 0;font-size:15px}
+.mis strong{color:#9c3b3b}
+table{border-collapse:collapse;width:100%;margin:14px 0;font-size:14.5px}
+th,td{border:1px solid #e4e3dc;padding:8px 10px;text-align:left;vertical-align:top}
+th{background:#f4f3ee}
+.sched{font-size:15px}
+.sched b{color:#1f4f6b}
+.check li{list-style:none;margin:10px 0}
+.check{padding-left:2px}
+.check input{margin-right:10px;transform:scale(1.2)}
+footer{margin-top:56px;padding-top:18px;border-top:1px solid #e4e3dc;font-size:14px;color:#6b6a63}
+footer a{color:#1f4f6b}
+.tag{display:inline-block;background:#1f4f6b;color:#fff;font-size:12px;padding:2px 9px;border-radius:11px;margin-right:8px;vertical-align:2px}
+@media(max-width:640px){.wrap{padding:30px 15px 70px}h1{font-size:24px}pre{font-size:12.5px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Day 4｜自訂 msg（ament_cmake）+ Launch 檔 + Remapping + Parameter YAML</h1>
+<p class="meta"><span class="tag">Week 1 · 工程化</span>2026-08-08（星期六）· Physical AI 助教特訓 Day 4 / 30</p>
+
+<div class="goal">
+<b>今日目標</b>：今天結束時，你要能<b>定義自己的訊息格式</b>、把一整套節點<b>用一個指令啟動</b>、並且在<b>不改任何一行程式碼</b>的情況下，靠 remapping 與 YAML 參數把同一支程式接到不同的地方、跑出不同的行為。
+</div>
+
+<h2>今天的主題其實只有一句話</h2>
+<p>Day 3 你會寫節點了。但一個真實機器人有 20–50 個節點，你不可能開 30 個終端機、每個都手打參數。</p>
+<p>今天學的四件事，都是在回答同一個問題：<b>「怎麼把一堆節點組裝成一個可重複、可設定、可交付的系統？」</b></p>
+<ul>
+<li><b>自訂 msg</b> —— 節點之間的資料契約</li>
+<li><b>Launch 檔</b> —— 一鍵啟動整套系統</li>
+<li><b>Remapping</b> —— 不改程式碼就換接線</li>
+<li><b>Parameter YAML</b> —— 不改程式碼就換設定</li>
+</ul>
+<p>這四件事合起來，就是 ROS 生態能夠共用套件的根本原因：Nav2、MoveIt2 你都不會去改它的原始碼，你只會寫 launch 檔、改 YAML、接 remapping。<b>今天學的東西，你之後每一天都在用。</b></p>
+
+<h2>時段安排（總計約 5 小時）</h2>
+<div class="box sched">
+<p><b>上午（約 2 小時）· 自訂 msg / srv</b><br>
+理解 rosidl 生成機制，建一個介面 package，寫兩個節點用它。</p>
+<p><b>下午（約 2 小時）· Launch + Parameter YAML</b><br>
+把上午的兩個節點包成一個 launch 檔，參數外部化，玩 namespace 與 remapping。</p>
+<p><b>晚上（約 1 小時）· 故意弄壞</b><br>
+把 YAML key 寫錯、把 data_files 拿掉、把 msg 改了不 build，各看一次錯誤訊息並記錄。</p>
+</div>
+
+<h2>1. 知識點：自訂 msg</h2>
+
+<h3>1-1　它解決什麼問題</h3>
+<p>ROS2 的節點是各自獨立的程式，可能一個是 C++、一個是 Python，可能跑在不同電腦上。它們之間要交換資料，就必須先講好「這串位元組怎麼解讀」。</p>
+<p>內建的 <code>std_msgs</code>、<code>geometry_msgs</code>、<code>sensor_msgs</code> 已經涵蓋八成情境。但當你要傳「一次物件偵測的結果：類別 + 信心度 + 3D 位置」，就沒有現成的了。</p>
+<div class="warn"><b>助教要提醒學生的原則</b>：<b>先找有沒有現成的標準訊息，找不到再自訂。</b> 例如偵測結果其實有 <code>vision_msgs/Detection3DArray</code>。自訂 msg 會讓你的套件跟別人的生態脫鉤——別人的工具（rviz plugin、rosbag 分析工具）不認得你的型別。</div>
+
+<h3>1-2　白話解釋 + 比喻</h3>
+<p><code>.msg</code> 檔像<b>報關單的欄位格式</b>。建置時 <code>rosidl</code>（ROS Interface Definition Language）這套工具會讀它，然後幫你<b>自動生成</b>：C++ 的 struct 與標頭檔、Python 的 class、以及最重要的——序列化／反序列化程式碼（把記憶體裡的物件變成可以在網路上傳的位元組，以及反過來）。</p>
+<p>所以請記牢這件事：<b>你 import 的那個 Python class 不是任何人手寫的 .py，是建置時生成的。</b> 這句話能解釋今天八成的錯誤。</p>
+
+<h3>1-3　msg 檔語法</h3>
+<pre><code># 基本型別
+bool    flag
+int8 int16 int32 int64          # 有號整數
+uint8 uint16 uint32 uint64      # 無號整數
+float32 float64
+string  name
+
+# 陣列
+float64[]    unbounded_array     # 不限長度
+float64[10]  fixed_array         # 固定 10 個
+float64[&lt;=10] bounded_array      # 最多 10 個
+
+# 巢狀：直接用別的訊息型別
+std_msgs/Header header
+geometry_msgs/Point position
+
+# 常數（全大寫 + 等號）
+uint8 STATUS_IDLE=0
+uint8 STATUS_MOVING=1
+uint8 status
+
+# 預設值（型別 名稱 預設值）
+int32 count 0
+string label "unknown"</code></pre>
+
+<h3>1-4　為什麼介面一定要放在 ament_cmake package</h3>
+<p>因為 <code>rosidl</code> 的程式碼生成是 CMake 的功能，<code>ament_python</code> 的建置流程沒有這一段。</p>
+<div class="warn"><b>業界慣例，請學生照做</b>：<b>介面獨立成一個 package</b>（例如 <code>my_msgs</code>），程式節點放另一個（<code>my_nodes</code>）。<br>
+原因：別人只想用你的訊息型別（例如寫一個訂閱者），不需要被迫安裝你所有的程式相依。而且介面 package 改動頻率低，可以獨立版本管理。</div>
+
+<h3>1-5　實作：建介面 package</h3>
+<pre><code>source /opt/ros/humble/setup.bash
+mkdir -p ~/day4_ws/src &amp;&amp; cd ~/day4_ws/src
+
+ros2 pkg create day4_msgs --build-type ament_cmake --dependencies std_msgs
+mkdir -p day4_msgs/msg day4_msgs/srv
+
+cat &gt; day4_msgs/msg/Temperature.msg &lt;&lt;'EOF'
+# 一次溫度量測
+std_msgs/Header header      # frame_id = 感測器位置；stamp = 量測時刻
+float32 celsius             # 攝氏溫度
+float32 humidity            # 相對濕度 0~100 (%)
+string  sensor_name         # 感測器代號
+uint8 STATUS_OK=0
+uint8 STATUS_OVERHEAT=1
+uint8 status
+EOF
+
+cat &gt; day4_msgs/srv/SetThreshold.srv &lt;&lt;'EOF'
+# 請求：把警戒溫度設成多少
+float32 threshold
+---
+# 回應：成功與否 + 訊息（--- 上面是 request，下面是 response）
+bool success
+string message
+EOF</code></pre>
+
+<p>編輯 <code>day4_msgs/CMakeLists.txt</code>，在 <code>ament_package()</code> <b>之前</b>加：</p>
+<pre><code>find_package(rosidl_default_generators REQUIRED)
+find_package(std_msgs REQUIRED)
+
+rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/Temperature.msg"
+  "srv/SetThreshold.srv"
+  DEPENDENCIES std_msgs
+)</code></pre>
+
+<p>編輯 <code>day4_msgs/package.xml</code>，加這三行：</p>
+<pre><code>  &lt;buildtool_depend&gt;rosidl_default_generators&lt;/buildtool_depend&gt;
+  &lt;exec_depend&gt;rosidl_default_runtime&lt;/exec_depend&gt;
+  &lt;member_of_group&gt;rosidl_interface_packages&lt;/member_of_group&gt;</code></pre>
+
+<p><b>三行各是什麼意思</b>（學生一定會問，你要答得出來）：</p>
+<table>
+<tr><th>標籤</th><th>意思</th></tr>
+<tr><td><code>buildtool_depend</code></td><td>建置<b>時</b>需要的工具：程式碼生成器本身</td></tr>
+<tr><td><code>exec_depend</code></td><td>執行<b>時</b>需要的函式庫：生成出來的程式碼要靠它才能跑</td></tr>
+<tr><td><code>member_of_group</code></td><td>向 ROS2 宣告「我是介面 package」，其他 package 才找得到我的型別</td></tr>
+</table>
+
+<pre><code>cd ~/day4_ws
+colcon build --packages-select day4_msgs
+source install/setup.bash
+
+# 驗證（這兩行是你以後的標準診斷動作）
+ros2 interface show day4_msgs/msg/Temperature
+ros2 interface show day4_msgs/srv/SetThreshold
+ros2 interface list | grep day4</code></pre>
+
+<div class="mis"><strong>常見誤解 1</strong>：「msg 存檔了程式就會用新欄位」。<b>錯</b>。改 msg 一定要重 <code>colcon build</code>，而且 <code>--symlink-install</code> 對它<b>沒有用</b>（symlink 只對純 Python 檔生效，生成的介面還是要重編）。<br>
+<strong>常見誤解 2</strong>：「我把 .msg 放在 Python package 裡就好」。ament_python 不會生成介面，build 會過但什麼都沒生出來，import 時才炸。</div>
+
+<h2>2. 知識點：Parameter 與 YAML</h2>
+
+<h3>2-1　它解決什麼問題</h3>
+<p>「警戒溫度 40 度」這個數字，如果寫死在程式碼裡，每次要調就得改程式、重 build、重啟。參數讓這些數字變成<b>外部設定</b>。</p>
+<p><b>比喻</b>：程式碼是<b>電器本體</b>，參數是<b>面板上的旋鈕</b>。你不會為了調冷氣溫度而拆開機殼。</p>
+
+<h3>2-2　三個層次，一定要分清楚</h3>
+<table>
+<tr><th>層次</th><th>做什麼</th><th>不做會怎樣</th></tr>
+<tr><td><code>declare_parameter(名稱, 預設值)</code></td><td>向 ROS2 宣告「我有這個旋鈕」，同時決定型別</td><td>沒宣告就 get 會拋 <code>ParameterNotDeclaredException</code></td></tr>
+<tr><td><code>get_parameter(名稱).value</code></td><td>讀取當下的值</td><td>—</td></tr>
+<tr><td><code>add_on_set_parameters_callback()</code></td><td>註冊「有人改我參數時要做什麼」</td><td>執行期 <code>ros2 param set</code> 改了，你的程式不會知道</td></tr>
+</table>
+
+<div class="mis"><strong>常見誤解</strong>：「我 <code>ros2 param set</code> 改了，程式怎麼沒反應？」<br>
+因為大部分教材的寫法是<b>在 <code>__init__</code> 讀一次就存進 self.xxx</b>。改參數只改了 ROS 那邊的值，你的 <code>self.xxx</code> 沒變。要即時生效必須註冊 callback。<b>這是學生最常見的「以為壞掉」情境</b>，其實是設計如此。</div>
+
+<h3>2-3　YAML 的格式：那個 <code>ros__parameters</code> 是什麼</h3>
+<pre><code># 最外層 = 節點的「真實名稱」，不是檔名、不是 executable 名、不是 package 名
+temp_sensor:
+  ros__parameters:          # 固定寫法，兩條底線
+    publish_rate: 2.0       # float：一定要寫小數點！寫 2 會變成 int，型別對不上
+    sensor_name: "cpu_temp" # string
+    threshold: 40.0
+    enabled: true           # bool
+    offsets: [0.1, -0.2]    # double array
+
+# 有 namespace 的話要寫全名
+/robot1/temp_sensor:
+  ros__parameters:
+    threshold: 35.0
+
+# 萬用字元：所有節點都套用（常見於 use_sim_time）
+/**:
+  ros__parameters:
+    use_sim_time: false</code></pre>
+<div class="warn"><b>踩雷第一名</b>：YAML 寫 <code>publish_rate: 2</code>（整數），程式裡 <code>declare_parameter('publish_rate', 2.0)</code>（浮點數）→ 直接拋 <code>InvalidParameterTypeException</code>。<b>浮點參數在 YAML 一律寫成 <code>2.0</code>。</b></div>
+
+<h2>3. 知識點：Launch 檔</h2>
+
+<h3>3-1　它解決什麼問題</h3>
+<p>一個 Nav2 系統要啟動十幾個節點，每個都有自己的參數與 remapping。Launch 檔就是<b>啟動腳本 + 系統組裝說明書</b>。</p>
+<p><b>比喻</b>：launch 檔是<b>樂團的總譜</b>——誰在什麼時候進場、用什麼調、接哪條線。</p>
+<p>ROS2 的 launch 是 <b>Python 程式</b>（不像 ROS1 是 XML），所以你可以寫 if、for、讀環境變數。代價是語法比較繞。</p>
+
+<h3>3-2　最小可用的 launch 檔骨架</h3>
+<pre><code>#!/usr/bin/env python3
+import os
+from ament_index_python.packages import get_package_share_directory
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, LogInfo
+from launch.substitutions import LaunchConfiguration
+from launch_ros.actions import Node
+
+
+def generate_launch_description():
+    # 1) 宣告啟動參數：ros2 launch 時可以在指令列覆寫
+    #    用法：ros2 launch day4_bringup demo.launch.py sim:=true
+    sim_arg = DeclareLaunchArgument(
+        'sim', default_value='false',
+        description='是否使用模擬時間')
+    sim = LaunchConfiguration('sim')
+
+    # 2) 找到 package 的 share 目錄，組出 yaml 路徑
+    params = os.path.join(
+        get_package_share_directory('day4_bringup'),
+        'config', 'demo_params.yaml')
+
+    return LaunchDescription([
+        sim_arg,
+        LogInfo(msg=['啟動中，use_sim_time = ', sim]),
+
+        Node(
+            package='day4_bringup',
+            executable='temp_sensor',       # setup.py entry_points 的名字
+            name='temp_sensor',             # 節點的真實名稱，要與 YAML key 一致
+            output='screen',                # log 印在終端機（不加就看不到 print）
+            parameters=[params, {'use_sim_time': sim}],
+            remappings=[('temperature', '/sensors/cpu_temp')],
+        ),
+        Node(
+            package='day4_bringup',
+            executable='temp_monitor',
+            name='temp_monitor',
+            output='screen',
+            parameters=[params],
+            remappings=[('temperature', '/sensors/cpu_temp')],
+        ),
+    ])</code></pre>
+
+<h3>3-3　Node() 幾個一定要懂的引數</h3>
+<table>
+<tr><th>引數</th><th>意義</th><th>踩雷</th></tr>
+<tr><td><code>name</code></td><td>覆寫節點名稱</td><td>改了它，YAML 的 key 也要跟著改</td></tr>
+<tr><td><code>namespace</code></td><td>在所有名稱前加前綴</td><td>YAML key 要寫成 <code>/ns/node:</code></td></tr>
+<tr><td><code>output='screen'</code></td><td>把 stdout 顯示出來</td><td>不加的話 <code>print()</code> 與 log 都看不到，學生會以為程式沒跑</td></tr>
+<tr><td><code>parameters=[...]</code></td><td>list，可混用檔案路徑與 dict</td><td><b>後面的會蓋掉前面的</b>，順序有意義</td></tr>
+<tr><td><code>remappings=[(舊,新)]</code></td><td>換接線</td><td>舊名要寫<b>程式碼裡的原始名稱</b>，不是你想像的名稱</td></tr>
+<tr><td><code>arguments=[...]</code></td><td>傳給程式的命令列參數</td><td>與 ros-args 不同層次，別混淆</td></tr>
+</table>
+
+<h2>4. 知識點：Remapping 與 Namespace</h2>
+
+<h3>4-1　Remapping：換接線</h3>
+<p><b>它解決什麼問題</b>：你買了一個雷射雷達驅動套件，它固定發到 <code>/scan</code>。但你有兩顆雷達。你不會去改它的原始碼——你 remap。</p>
+<p><b>比喻</b>：remapping 是<b>轉接頭</b>，不是改電器。</p>
+<pre><code># 指令列的寫法（--ros-args 之後才是 ROS 的參數）
+ros2 run day4_bringup temp_sensor --ros-args \
+  --remap temperature:=/sensors/cpu_temp \
+  --remap __node:=my_sensor \
+  -p threshold:=45.0
+
+# 從檔案載入參數
+ros2 run day4_bringup temp_sensor --ros-args --params-file /path/to/demo_params.yaml</code></pre>
+
+<h3>4-2　Namespace：整組搬家</h3>
+<p>remapping 是一條一條換；namespace 是<b>把這個節點的所有名稱整組加前綴</b>。</p>
+<pre><code>Node(package='...', executable='temp_sensor',
+     name='temp_sensor', namespace='robot1')
+# → 節點變成 /robot1/temp_sensor
+# → topic 從 temperature 變成 /robot1/temperature</code></pre>
+<p><b>典型用途</b>：多機器人。同一套程式開兩次，一個 namespace 是 <code>robot1</code>、一個是 <code>robot2</code>，彼此不會打架。</p>
+
+<h3>4-3　名稱前面那個斜線，決定一切</h3>
+<div class="warn">
+<b>相對名稱</b>（<code>temperature</code>）→ 會被 namespace 加前綴 → 變成 <code>/robot1/temperature</code><br>
+<b>絕對名稱</b>（<code>/temperature</code>）→ <b>不受 namespace 影響</b>，永遠是 <code>/temperature</code><br><br>
+<b>寫程式時請一律用相對名稱</b>，把要不要加前綴的決定權留給 launch 檔。學生若在程式裡寫死 <code>/cmd_vel</code>，之後做多機器人就得改原始碼——這正是 remapping 想避免的事。
+</div>
+
+<h2>5. 完整實作：兩個節點 + 一個 launch</h2>
+
+<h3>5-1　建程式 package</h3>
+<pre><code>cd ~/day4_ws/src
+ros2 pkg create day4_bringup --build-type ament_python \
+  --dependencies rclpy std_msgs day4_msgs
+mkdir -p day4_bringup/launch day4_bringup/config</code></pre>
+
+<h3>5-2　<code>day4_bringup/day4_bringup/temp_sensor.py</code></h3>
+<pre><code>#!/usr/bin/env python3
+"""假的溫度感測器：週期性發佈 Temperature，並提供一個改警戒值的 service。"""
+import math
+import random
+
+import rclpy
+from rclpy.node import Node
+from rcl_interfaces.msg import SetParametersResult
+
+from day4_msgs.msg import Temperature
+from day4_msgs.srv import SetThreshold
+
+
+class TempSensor(Node):
+    def __init__(self):
+        super().__init__('temp_sensor')
+
+        # --- 宣告參數：第二個引數同時決定「預設值」與「型別」---
+        self.declare_parameter('publish_rate', 2.0)
+        self.declare_parameter('sensor_name', 'cpu_temp')
+        self.declare_parameter('threshold', 40.0)
+        self.declare_parameter('frame_id', 'cpu')
+
+        rate = self.get_parameter('publish_rate').value
+        self.sensor_name = self.get_parameter('sensor_name').value
+        self.threshold = self.get_parameter('threshold').value
+        self.frame_id = self.get_parameter('frame_id').value
+
+        # --- 註冊參數變更 callback：讓 ros2 param set 能即時生效 ---
+        self.add_on_set_parameters_callback(self.on_param_change)
+
+        # 注意：這裡用「相對名稱」，把要不要加前綴留給 launch 決定
+        self.pub = self.create_publisher(Temperature, 'temperature', 10)
+
+        # Service：讓別人可以改警戒值
+        self.srv = self.create_service(
+            SetThreshold, 'set_threshold', self.on_set_threshold)
+
+        self.t = 0.0
+        self.dt = 1.0 / float(rate)
+        self.create_timer(self.dt, self.tick)
+        self.get_logger().info(
+            f'temp_sensor 啟動：{rate} Hz, threshold={self.threshold}')
+
+    def on_param_change(self, params):
+        """有人 ros2 param set 時會呼叫這裡。回傳 successful=False 就是拒絕。"""
+        for p in params:
+            if p.name == 'threshold':
+                if p.value &lt; 0.0:
+                    return SetParametersResult(
+                        successful=False, reason='threshold 不可為負')
+                self.threshold = p.value
+                self.get_logger().info(f'threshold 已更新為 {self.threshold}')
+        return SetParametersResult(successful=True)
+
+    def on_set_threshold(self, req, res):
+        if req.threshold &lt; 0.0:
+            res.success = False
+            res.message = 'threshold 不可為負'
+        else:
+            self.threshold = float(req.threshold)
+            res.success = True
+            res.message = f'threshold 設為 {self.threshold}'
+        self.get_logger().info(res.message)
+        return res
+
+    def tick(self):
+        self.t += self.dt
+        celsius = 38.0 + 6.0 * math.sin(0.2 * self.t) + random.gauss(0.0, 0.3)
+
+        msg = Temperature()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.frame_id = self.frame_id
+        msg.celsius = float(celsius)
+        msg.humidity = 55.0
+        msg.sensor_name = self.sensor_name
+        msg.status = (Temperature.STATUS_OVERHEAT
+                      if celsius &gt; self.threshold else Temperature.STATUS_OK)
+        self.pub.publish(msg)
+
+
+def main():
+    rclpy.init()
+    node = TempSensor()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        rclpy.try_shutdown()
+
+
+if __name__ == '__main__':
+    main()</code></pre>
+
+<h3>5-3　<code>day4_bringup/day4_bringup/temp_monitor.py</code></h3>
+<pre><code>#!/usr/bin/env python3
+"""訂閱 Temperature，超過警戒值就警告。示範用常數欄位判斷狀態。"""
+import rclpy
+from rclpy.node import Node
+
+from day4_msgs.msg import Temperature
+
+
+class TempMonitor(Node):
+    def __init__(self):
+        super().__init__('temp_monitor')
+        self.declare_parameter('log_every_n', 5)
+        self.n = int(self.get_parameter('log_every_n').value)
+        self.count = 0
+
+        self.sub = self.create_subscription(
+            Temperature, 'temperature', self.on_temp, 10)
+        self.get_logger().info('temp_monitor 啟動，等待資料…')
+
+    def on_temp(self, msg: Temperature):
+        self.count += 1
+        if msg.status == Temperature.STATUS_OVERHEAT:
+            self.get_logger().warn(
+                f'[{msg.sensor_name}] 過熱：{msg.celsius:.1f} °C',
+                throttle_duration_sec=2.0)
+        elif self.count % self.n == 0:
+            self.get_logger().info(
+                f'[{msg.sensor_name}] {msg.celsius:.1f} °C '
+                f'@ frame={msg.header.frame_id}')
+
+
+def main():
+    rclpy.init()
+    node = TempMonitor()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        rclpy.try_shutdown()
+
+
+if __name__ == '__main__':
+    main()</code></pre>
+
+<h3>5-4　<code>config/demo_params.yaml</code></h3>
+<pre><code>temp_sensor:
+  ros__parameters:
+    publish_rate: 2.0
+    sensor_name: "cpu_temp"
+    threshold: 40.0
+    frame_id: "cpu"
+
+temp_monitor:
+  ros__parameters:
+    log_every_n: 5</code></pre>
+
+<h3>5-5　<code>launch/demo.launch.py</code></h3>
+<p>用上面 3-2 的骨架即可（記得 <code>get_package_share_directory('day4_bringup')</code>）。</p>
+
+<h3>5-6　<code>setup.py</code>：兩個地方一定要改</h3>
+<pre><code>import os
+from glob import glob
+from setuptools import setup
+
+package_name = 'day4_bringup'
+
+setup(
+    name=package_name,
+    version='0.0.1',
+    packages=[package_name],
+    data_files=[
+        ('share/ament_index/resource_index/packages', ['resource/' + package_name]),
+        ('share/' + package_name, ['package.xml']),
+        # ↓ 沒這兩行，launch 與 yaml 不會被裝到 install/，launch 會說找不到檔案
+        (os.path.join('share', package_name, 'launch'), glob('launch/*.launch.py')),
+        (os.path.join('share', package_name, 'config'), glob('config/*.yaml')),
+    ],
+    install_requires=['setuptools'],
+    zip_safe=True,
+    maintainer='ta',
+    maintainer_email='ta@example.com',
+    description='Day4 launch / param / remapping 練習',
+    license='MIT',
+    entry_points={
+        'console_scripts': [
+            # ↓ 沒這些，ros2 run 會說 No executable found
+            'temp_sensor = day4_bringup.temp_sensor:main',
+            'temp_monitor = day4_bringup.temp_monitor:main',
+        ],
+    },
+)</code></pre>
+
+<h3>5-7　建置與執行</h3>
+<pre><code>cd ~/day4_ws
+colcon build --symlink-install
+source install/setup.bash
+
+ros2 launch day4_bringup demo.launch.py
+# 換個 topic 名稱、換個時間來源試試
+ros2 launch day4_bringup demo.launch.py sim:=true</code></pre>
+
+<h3>5-8　驗證指令（今天的重點練習）</h3>
+<pre><code># topic 真的被 remap 到 /sensors/cpu_temp 了嗎
+ros2 topic list
+ros2 topic echo /sensors/cpu_temp --once
+
+# 參數真的從 YAML 吃進去了嗎
+ros2 param list /temp_sensor
+ros2 param get /temp_sensor threshold
+ros2 param dump /temp_sensor          # 印出節點實際生效的全部參數
+
+# 即時改參數，看 callback 有沒有動作
+ros2 param set /temp_sensor threshold 20.0     # 應該馬上開始噴 warn
+ros2 param set /temp_sensor threshold -5.0     # 應該被拒絕
+
+# 呼叫 service
+ros2 service list
+ros2 service call /set_threshold day4_msgs/srv/SetThreshold "{threshold: 42.0}"
+
+# 看 launch 到底幫你下了什麼指令
+ros2 launch day4_bringup demo.launch.py --show-args
+ros2 launch day4_bringup demo.launch.py --print-description</code></pre>
+
+<h2>6. 晚上：故意弄壞（每一項都要親手做一次）</h2>
+<ol>
+<li>把 YAML 的 <code>temp_sensor:</code> 改成 <code>temp_sensor_node:</code> → 觀察：不報錯，但參數變回預設值。用 <code>ros2 param get</code> 抓出來。</li>
+<li>把 <code>publish_rate: 2.0</code> 改成 <code>2</code> → 觀察 <code>InvalidParameterTypeException</code> 長什麼樣。</li>
+<li>把 <code>setup.py</code> 的 launch data_files 那行註解掉、重 build → 觀察 <code>file 'demo.launch.py' was not found</code>。</li>
+<li>在 <code>Temperature.msg</code> 加一個欄位但<b>不重 build</b>，程式直接用 → 觀察 <code>AttributeError</code>。</li>
+<li>把 launch 裡的 <code>output='screen'</code> 拿掉 → 觀察「什麼 log 都看不到」的假死狀態。</li>
+</ol>
+
+<h2>7. 今日指定資源</h2>
+<ol>
+<li><b>ROS2 Humble 官方文件</b>《Tutorials → Beginner: Client libraries → <i>Creating custom msg and srv files</i>》——今天上午照這一節做，特別留意 CMakeLists 與 package.xml 那兩段。</li>
+<li><b>ROS2 Humble 官方文件</b>《Tutorials → Intermediate → <i>Launch</i>》三節（Creating a launch file / Integrating launch files into ROS2 packages / Using substitutions）——下午的內容就是這三節，<b>Substitutions 那節一定要看</b>，它是 launch 檔看起來很怪的原因。</li>
+<li><b>Articulated Robotics</b>〈<i>Launch files</i>〉那一集——他用實際機器人專案示範 launch 檔怎麼分層（bringup / description / control），這個分層習慣值得直接抄給學生。</li>
+<li><b>官方文件</b>《Concepts → <i>Parameters</i>》與《Tutorials → <i>Using parameters in a class</i>》，重點看 parameter callback 的部分。</li>
+</ol>
+
+<h2>8. ✅ 今日驗收清單</h2>
+<ul class="check">
+<li><input type="checkbox"> <code>ros2 interface show day4_msgs/msg/Temperature</code> 印得出欄位與常數</li>
+<li><input type="checkbox"> 一行 <code>ros2 launch</code> 同時啟動兩個節點，且 topic 確實出現在 <code>/sensors/cpu_temp</code></li>
+<li><input type="checkbox"> <code>ros2 param get /temp_sensor threshold</code> 拿到的是 YAML 裡的值（不是程式預設值）</li>
+<li><input type="checkbox"> <code>ros2 param set</code> 改 threshold 後，monitor 的行為<b>立刻</b>改變（callback 有生效）</li>
+<li><input type="checkbox"> 你能解釋「相對名稱 vs 絕對名稱」對 namespace 的差別，並實際跑一次 namespace 版本驗證</li>
+</ul>
+
+<h2>9. 🎓 助教筆記：Day 4 學生最會卡的地方</h2>
+
+<h3>卡點 1：<code>ModuleNotFoundError: No module named 'day4_msgs'</code></h3>
+<div class="box">
+<p><b>依序檢查</b>：<br>
+① 有沒有 <code>colcon build</code>？② build 完有沒有<b>重新 source</b>？③ 是不是在舊終端機執行？④ <code>day4_bringup/package.xml</code> 裡有沒有 <code>&lt;depend&gt;day4_msgs&lt;/depend&gt;</code>？</p>
+<p><b>診斷</b>：<code>ros2 interface list | grep day4</code>（有列出 = 介面裝好了，是環境問題；沒列出 = build 沒成功）</p>
+<p><b>絕招</b>：<code>rm -rf build install log &amp;&amp; colcon build</code>，然後開<b>全新</b>終端機。</p>
+</div>
+
+<h3>卡點 2：介面 package build 過了，但別的 package 找不到型別</h3>
+<div class="box">
+<p><b>錯誤訊息</b>：<code>CMake Error: Could not find a package configuration file provided by "day4_msgs"</code>，或 Python 端 import 成功但欄位不對。</p>
+<p><b>原因</b>：<code>package.xml</code> 少了 <code>&lt;member_of_group&gt;rosidl_interface_packages&lt;/member_of_group&gt;</code>，或 <code>rosidl_generate_interfaces</code> 寫在 <code>ament_package()</code> <b>後面</b>（CMake 是照順序執行的，寫在後面等於沒寫）。</p>
+<p><b>診斷</b>：<code>ls ~/day4_ws/install/day4_msgs/lib/python3.10/site-packages/day4_msgs/msg/</code> —— 有 <code>_temperature.py</code> 之類的檔案，代表真的生成了。</p>
+</div>
+
+<h3>卡點 3：YAML 參數沒吃到（不報錯，最陰險）</h3>
+<div class="box">
+<p><b>症狀</b>：程式跑得好好的，但行為是預設值。</p>
+<p><b>診斷三連</b>：<br>
+<code>ros2 node list</code> → 節點的<b>真實名稱</b>是什麼<br>
+<code>ros2 param dump /節點名</code> → 實際生效的參數<br>
+<code>cat 你的.yaml</code> → 比對最外層 key</p>
+<p><b>四個常見原因</b>：<br>
+① YAML key 寫成 package 名或檔名，不是節點名<br>
+② launch 裡設了 <code>namespace</code>，key 卻沒寫成 <code>/ns/node:</code><br>
+③ 縮排錯誤（YAML 對縮排極敏感，<b>不能用 Tab</b>，只能空格）<br>
+④ 改了 YAML 但沒重 <code>colcon build</code>——YAML 是被<b>複製</b>到 install/ 的，改原始檔沒用（除非用 <code>--symlink-install</code>）</p>
+<p><b>助教話術</b>：「先 <code>ros2 param dump</code> 給我看，我們比對一下你以為的和實際的。」</p>
+</div>
+
+<h3>卡點 4：<code>launch file was not found in the share directory</code></h3>
+<div class="box">
+<p><b>原因</b>：<code>setup.py</code> 的 <code>data_files</code> 沒裝 launch 目錄；或 glob pattern 對不上（檔名沒有 <code>.launch.py</code> 結尾，而 glob 寫的是 <code>launch/*.launch.py</code>）。</p>
+<p><b>診斷</b>：<code>ls ~/day4_ws/install/day4_bringup/share/day4_bringup/</code> —— 直接看裝進去了沒。</p>
+<p><b>順便教學生</b>：這個 <code>install/.../share/</code> 就是 <code>get_package_share_directory()</code> 回傳的路徑。理解這件事，之後找任何套件的預設參數檔都靠它。</p>
+</div>
+
+<h3>卡點 5：remap 沒有生效</h3>
+<div class="box">
+<p><b>原因排序</b>：<br>
+① 程式裡寫的是<b>絕對名稱</b>（<code>/temperature</code>），remap 的舊名寫成相對名稱 → 對不上<br>
+② remap 的「舊名」寫成了自己想要的名稱，方向搞反了（正確是 <code>(原始名, 新名)</code>）<br>
+③ 用 <code>ros2 run</code> 時忘了 <code>--ros-args</code></p>
+<p><b>診斷</b>：<code>ros2 node info /節點名</code> 直接看它實際訂閱／發佈的完整 topic 名稱，一翻兩瞪眼。</p>
+</div>
+
+<h3>卡點 6：launch 起來了但什麼 log 都沒有，像當機</h3>
+<div class="box">
+<p><b>原因</b>：<code>Node()</code> 少了 <code>output='screen'</code>。ROS2 預設把 log 導到 <code>~/.ros/log/</code>，不顯示在終端機。</p>
+<p><b>解法</b>：加 <code>output='screen'</code>；或整份 launch 執行時加 <code>--ros-args --log-level debug</code>；或直接去翻 <code>~/.ros/log/latest_launch/</code>。</p>
+<p><b>這一條要教學生養成習慣</b>：<b>看不到輸出 ≠ 沒在跑</b>。先 <code>ros2 node list</code> 確認節點活著，再處理 log。</p>
+</div>
+
+<h2>10. 回報格式</h2>
+<div class="goal">
+今天請回覆我四件事：
+<ol style="margin-bottom:0">
+<li><b>完成了什麼</b>（驗收清單五項，加上「故意弄壞」五項做了幾項）</li>
+<li><b>卡在哪</b>——貼<b>完整</b>錯誤訊息與你當時打的指令</li>
+<li><b>哪個概念沒懂</b>（例如 substitutions、parameter callback、namespace）</li>
+<li><b>實際花了多少時間</b>（分上午 / 下午 / 晚上）</li>
+</ol>
+</div>
+<p style="font-size:14.5px;color:#6b6a63">明天 Day 5 是 tf2 座標轉換——第一週最抽象、也是最多學生放棄的一天。今天的 launch 與參數觀念會直接用上（static_transform_publisher 就是靠 launch 設定的）。</p>
+
+<footer><a href="index.html">← 回索引</a>　·　Ubuntu 22.04 · ROS2 Humble · Gazebo Classic 11 · Python 3.10</footer>
+
+</div>
+</body>
+</html>
