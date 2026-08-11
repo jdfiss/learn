@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Day 6｜URDF / Xacro / robot_state_publisher / rviz2 熟練</title>
+<style>
+:root{color-scheme:light}
+*{box-sizing:border-box}
+body{margin:0;background:#fbfbf9;color:#2c2a26;
+font-family:-apple-system,"Segoe UI","PingFang TC","Microsoft JhengHei",sans-serif;
+line-height:1.8;font-size:16px}
+.wrap{max-width:900px;margin:0 auto;padding:44px 22px 90px}
+h1{font-family:Georgia,"Noto Serif TC",serif;font-size:30px;margin:0 0 8px;font-weight:700;line-height:1.35}
+.meta{color:#6b6a63;font-size:14px;margin:0 0 28px}
+h2{font-size:21px;margin:44px 0 12px;padding-bottom:8px;border-bottom:2px solid #e4e3dc}
+h3{font-size:17px;margin:28px 0 8px;color:#1f4f6b}
+h4{font-size:15px;margin:18px 0 6px;color:#5a5852}
+p{margin:10px 0}
+ul,ol{margin:10px 0;padding-left:24px}
+li{margin:6px 0}
+code{background:#f0efe9;padding:1px 5px;border-radius:3px;font-size:14px;
+font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace}
+pre{background:#1e1f26;color:#e6e6e6;padding:16px 18px;border-radius:8px;overflow-x:auto;
+font-size:13.5px;line-height:1.6;margin:12px 0}
+pre code{background:none;color:inherit;padding:0;font-size:13.5px}
+.goal{background:#eef5ef;border-left:4px solid #4a8a5c;padding:14px 18px;border-radius:0 6px 6px 0;margin:16px 0}
+.box{background:#fff;border:1px solid #e4e3dc;border-radius:8px;padding:16px 20px;margin:16px 0}
+.warn{background:#fdf3e7;border-left:4px solid #d08b2c;padding:12px 18px;border-radius:0 6px 6px 0;margin:14px 0}
+.mis{background:#fbeeee;border-left:4px solid #b95555;padding:12px 18px;border-radius:0 6px 6px 0;margin:14px 0;font-size:15px}
+.mis strong{color:#9c3b3b}
+.math{background:#f4f6f8;border:1px solid #dfe4e8;border-radius:6px;padding:14px 18px;margin:14px 0;
+font-family:"SFMono-Regular",Consolas,monospace;font-size:14px;overflow-x:auto;line-height:1.75}
+table{border-collapse:collapse;width:100%;margin:14px 0;font-size:14.5px}
+th,td{border:1px solid #e4e3dc;padding:8px 10px;text-align:left;vertical-align:top}
+th{background:#f4f3ee}
+.sched{font-size:15px}
+.sched b{color:#1f4f6b}
+.check li{list-style:none;margin:10px 0}
+.check{padding-left:2px}
+.check input{margin-right:10px;transform:scale(1.2)}
+footer{margin-top:56px;padding-top:18px;border-top:1px solid #e4e3dc;font-size:14px;color:#6b6a63}
+footer a{color:#1f4f6b}
+.tag{display:inline-block;background:#1f4f6b;color:#fff;font-size:12px;padding:2px 9px;border-radius:11px;margin-right:8px;vertical-align:2px}
+@media(max-width:640px){.wrap{padding:30px 15px 70px}h1{font-size:24px}pre{font-size:12.5px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Day 6｜URDF / Xacro / robot_state_publisher / rviz2 熟練</h1>
+<p class="meta"><span class="tag">Week 1 · 機器人描述</span>2026-08-10（星期一）· Physical AI 助教特訓 Day 6 / 30</p>
+
+<div class="goal">
+<b>今日目標</b>：今天結束時，你要能<b>從零寫出一台差速輪機器人的 URDF（用 Xacro）</b>，在 rviz2 裡看到它、拖動輪子看它轉、並且理解昨天手寫的那些 static transform 為什麼今天可以全部刪掉——因為 URDF 會自動幫你發。
+</div>
+
+<h2>1. 昨天的伏筆：URDF 就是「自動化的 tf 發佈器」</h2>
+<p>昨天你手打了這行：</p>
+<pre><code>ros2 run tf2_ros static_transform_publisher --x 0.2 --z 0.15 \
+  --frame-id base_link --child-frame-id laser_link</code></pre>
+<p>一台真實機器人有 15–30 個 frame。你不可能打 30 行。</p>
+<p><b>URDF 解決的就是這件事</b>：用一份 XML 描述「機器人有哪些零件、彼此怎麼接、接在哪」，然後 <code>robot_state_publisher</code> 讀了它，<b>自動把整棵 tf 樹發出來</b>。</p>
+<p><b>比喻</b>：URDF 是機器人的<b>樂高說明書</b>——每一塊積木長什麼樣、多重、接在哪一塊的哪個位置、能不能轉。<code>robot_state_publisher</code> 是照著說明書把積木<b>組起來並持續回報每塊積木現在在哪</b>的那個人。</p>
+
+<h2>2. 時段安排（總計約 5 小時）</h2>
+<div class="box sched">
+<p><b>上午（約 1.5 小時）· URDF 結構</b><br>
+link / joint / origin 的三層關係，先用純 URDF 寫一台最陽春的兩輪車。</p>
+<p><b>下午（約 2.5 小時）· Xacro 重構 + rviz2</b><br>
+把重複的輪子抽成巨集、尺寸抽成參數，加上雷達，寫 display.launch.py。</p>
+<p><b>晚上（約 1 小時）· 熟練 rviz2 + 故意弄壞</b><br>
+把 origin 放錯位置、把 joint_state_publisher 關掉，各看一次症狀。</p>
+</div>
+
+<h2>3. 知識點：URDF 的基本結構</h2>
+
+<h3>3-1　只有兩種元素：link 與 joint</h3>
+<div class="box">
+<p><b>link（連桿）</b>＝ 一塊剛體零件。車體、輪子、手臂的一節、雷達本體。<br>
+<b>joint（關節）</b>＝ 兩個 link 之間的連接關係，<b>同時也定義了它們的相對位置</b>。</p>
+<p>結構永遠是：<code>link — joint — link — joint — link …</code> 交錯成一棵樹。<br>
+<b>每個 link 只能有一個 parent joint</b>——這就是昨天 tf 那條鐵律的來源。</p>
+</div>
+
+<h3>3-2　joint 的六種類型</h3>
+<table>
+<tr><th>type</th><th>意義</th><th>典型用途</th><th>需要 joint_state 嗎</th></tr>
+<tr><td><code>fixed</code></td><td>焊死，不會動</td><td>雷達、相機、IMU 的安裝</td><td>不用</td></tr>
+<tr><td><code>continuous</code></td><td>繞軸無限旋轉</td><td>輪子</td><td><b>要</b></td></tr>
+<tr><td><code>revolute</code></td><td>繞軸旋轉<b>有上下限</b></td><td>手臂關節</td><td><b>要</b></td></tr>
+<tr><td><code>prismatic</code></td><td>沿軸直線滑動，有限位</td><td>夾爪、升降柱</td><td><b>要</b></td></tr>
+<tr><td><code>floating</code></td><td>6 自由度自由浮動</td><td>幾乎不用</td><td>—</td></tr>
+<tr><td><code>planar</code></td><td>平面內 3 自由度</td><td>幾乎不用</td><td>—</td></tr>
+</table>
+<p>Day 15 開始碰 MoveIt2 時，你會發現手臂就是一串 <code>revolute</code> joint——今天學的東西直接延續過去。</p>
+
+<h3>3-3　最重要的坑：兩個 origin 完全不同</h3>
+<div class="warn">
+<b>這是 URDF 的頭號困惑點，助教一定要講清楚。</b><br><br>
+<b>① <code>joint</code> 裡的 <code>origin</code></b>　→ 決定<b>子 link 的座標系原點</b>要放在父 link 的哪裡。<b>它會影響 tf</b>。<br>
+<b>② <code>visual</code> / <code>collision</code> / <code>inertial</code> 裡的 <code>origin</code></b>　→ 決定那塊<b>幾何形狀</b>相對於「自己這個 link 的原點」要偏移多少。<b>它不影響 tf</b>，只影響外觀。
+</div>
+<p><b>比喻</b>：joint 的 origin 是「這塊積木<b>釘在</b>母積木的哪個位置」；visual 的 origin 是「這塊積木的<b>圖案</b>要印在積木本身的哪個位置」。</p>
+<p><b>實務判斷</b>：模型<b>整台歪掉、輪子飛到旁邊</b> → 通常是 joint 的 origin 錯。模型<b>位置對但形狀陷進地板一半</b> → 通常是 visual 的 origin 沒補。</p>
+<div class="mis"><strong>常見誤解</strong>：「圓柱體預設是躺著的」。不是，URDF 的 <code>cylinder</code> 預設<b>沿 z 軸站立</b>。輪子要立起來（軸朝 y），必須在 joint 或 visual 的 <code>rpy</code> 加上繞 x 軸 −90 度（<code>-1.5708</code>）。學生 90% 第一次做出來的輪子是躺平的。</div>
+
+<h3>3-4　visual / collision / inertial：三個都要有，用途各不同</h3>
+<table>
+<tr><th>區塊</th><th>誰會用</th><th>該寫什麼</th></tr>
+<tr><td><code>visual</code></td><td>rviz2、Gazebo 畫面</td><td>好看的形狀，可以用 mesh（.dae/.stl）</td></tr>
+<tr><td><code>collision</code></td><td>物理引擎、MoveIt2 碰撞檢查</td><td><b>盡量用簡單幾何</b>（box/cylinder/sphere）。用複雜 mesh 會讓模擬慢十倍</td></tr>
+<tr><td><code>inertial</code></td><td>物理引擎（Gazebo / Isaac）</td><td>質量與慣量張量。<b>只在模擬會動的物體上重要</b></td></tr>
+</table>
+<div class="warn"><b>Day 8 的預告</b>：<code>inertial</code> 寫錯（質量 0、慣量全 0、或慣量遠小於合理值）在 rviz2 <b>完全看不出來</b>，但一放進 Gazebo 就會出現「機器人瘋狂抖動、原地爆炸、穿過地板」。這是學生進入模擬後第一個崩潰點，<b>今天就把慣量算對</b>。</div>
+
+<h3>3-5　慣量怎麼算（不用背，但要知道在算什麼）</h3>
+<p>慣量張量描述「這個物體<b>繞各個軸轉起來有多費力</b>」，就像質量描述「推它前進有多費力」。</p>
+<div class="math">
+實心長方體（長 x、寬 y、高 z，質量 m）：
+    ixx = m·(y² + z²)/12
+    iyy = m·(x² + z²)/12
+    izz = m·(x² + y²)/12
+
+實心圓柱（半徑 r、高 h、質量 m，軸沿 z）：
+    ixx = iyy = m·(3r² + h²)/12
+    izz = m·r²/2
+</div>
+<ul>
+<li><code>m</code>：質量，公斤</li>
+<li><code>ixx</code>：繞 <b>x 軸</b>轉動的慣量，單位 kg·m²</li>
+<li>非對角項 <code>ixy, ixz, iyz</code>：形狀不對稱時才非零，我們用規則幾何體，一律填 0</li>
+<li><b>物理直覺</b>：質量離轉軸越遠，慣量越大（所以公式裡是平方）。花式滑冰選手收手轉更快，就是慣量變小</li>
+</ul>
+<p>下面的 Xacro 會把這兩條公式寫成巨集，以後直接呼叫就好。</p>
+
+<h3>3-6　robot_state_publisher vs joint_state_publisher</h3>
+<div class="box">
+<p>這兩個名字很像，但做的事完全不同，<b>學生一定會搞混</b>。</p>
+<p><b><code>joint_state_publisher</code></b>：回答「每個<b>可動</b>關節現在轉到幾度？」<br>
+→ 發佈 <code>/joint_states</code>（<code>sensor_msgs/JointState</code>）<br>
+→ 真實機器人上，這是<b>馬達驅動器</b>回報的；開發階段用 <code>joint_state_publisher_gui</code> 拉滑桿假裝。</p>
+<p><b><code>robot_state_publisher</code></b>：拿 URDF（形狀結構）＋ <code>/joint_states</code>（關節角度），<b>算出整棵 tf 樹並發佈</b>。<br>
+→ 固定的 joint 發到 <code>/tf_static</code>，可動的發到 <code>/tf</code>。</p>
+<p><b>一句話</b>：joint_state_publisher 提供「角度」，robot_state_publisher 負責「換算成座標」。</p>
+</div>
+<div class="mis"><strong>常見誤解</strong>：「我只跑 robot_state_publisher 就好」。如果 URDF 裡有 <code>continuous</code> / <code>revolute</code> joint，沒有 <code>/joint_states</code>，那幾段 tf <b>永遠不會被發佈</b>，rviz 就會說輪子找不到 transform。這是今天最常見的錯誤。</div>
+
+<h2>4. 知識點：Xacro</h2>
+<p><b>它解決什麼問題</b>：純 URDF 極度囉唆。四個輪子要寫四遍幾乎一樣的 40 行。改一個尺寸要改十個地方。</p>
+<p><b>Xacro（XML Macros）</b>是一個<b>預處理器</b>——它在 URDF 之上加了「變數、數學運算、巨集、include」，最後<b>展開成純 URDF</b>。ROS 其實只認得純 URDF。</p>
+<p>三個功能就夠用：</p>
+<pre><code>&lt;!-- ① 屬性（變數）--&gt;
+&lt;xacro:property name="wheel_radius" value="0.05"/&gt;
+
+&lt;!-- ② 用 ${} 取值，裡面可以做數學運算 --&gt;
+&lt;origin xyz="0 0 ${wheel_radius + base_height/2}"/&gt;
+
+&lt;!-- ③ 巨集：把重複的東西包起來 --&gt;
+&lt;xacro:macro name="wheel" params="prefix reflect"&gt;
+   ...內容裡可以用 ${prefix} 與 ${reflect}...
+&lt;/xacro:macro&gt;
+&lt;xacro:wheel prefix="left"  reflect="1"/&gt;
+&lt;xacro:wheel prefix="right" reflect="-1"/&gt;
+
+&lt;!-- ④ 拆檔案 --&gt;
+&lt;xacro:include filename="$(find my_robot_description)/urdf/wheel.xacro"/&gt;</code></pre>
+<div class="warn"><b>最重要的除錯指令</b>：<br>
+<code>xacro robot.urdf.xacro</code> —— 把展開後的<b>純 URDF 印出來</b>。<br>
+學生說「我的 URDF 有問題」時，<b>第一件事永遠是叫他先跑這個</b>。八成的錯誤（語法、變數沒定義、巨集參數少給）在這一步就會直接報行號。</div>
+
+<h2>5. 下午實作：一台完整的差速輪機器人</h2>
+
+<h3>5-1　建 package</h3>
+<pre><code>source /opt/ros/humble/setup.bash
+mkdir -p ~/day6_ws/src &amp;&amp; cd ~/day6_ws/src
+
+ros2 pkg create my_robot_description --build-type ament_cmake
+cd my_robot_description
+mkdir -p urdf launch rviz
+
+# 需要的套件
+sudo apt install -y ros-humble-joint-state-publisher-gui ros-humble-xacro</code></pre>
+
+<h3>5-2　<code>urdf/inertial_macros.xacro</code>（慣量巨集，一次寫好永遠重用）</h3>
+<pre><code>&lt;?xml version="1.0"?&gt;
+&lt;robot xmlns:xacro="http://www.ros.org/wiki/xacro"&gt;
+
+  &lt;!-- 實心長方體的慣量 --&gt;
+  &lt;xacro:macro name="inertial_box" params="mass x y z *origin"&gt;
+    &lt;inertial&gt;
+      &lt;xacro:insert_block name="origin"/&gt;
+      &lt;mass value="${mass}"/&gt;
+      &lt;inertia ixx="${(mass/12) * (y*y + z*z)}" ixy="0.0" ixz="0.0"
+               iyy="${(mass/12) * (x*x + z*z)}" iyz="0.0"
+               izz="${(mass/12) * (x*x + y*y)}"/&gt;
+    &lt;/inertial&gt;
+  &lt;/xacro:macro&gt;
+
+  &lt;!-- 實心圓柱的慣量（軸沿 z）--&gt;
+  &lt;xacro:macro name="inertial_cylinder" params="mass length radius *origin"&gt;
+    &lt;inertial&gt;
+      &lt;xacro:insert_block name="origin"/&gt;
+      &lt;mass value="${mass}"/&gt;
+      &lt;inertia ixx="${(mass/12) * (3*radius*radius + length*length)}" ixy="0.0" ixz="0.0"
+               iyy="${(mass/12) * (3*radius*radius + length*length)}" iyz="0.0"
+               izz="${(mass/2) * (radius*radius)}"/&gt;
+    &lt;/inertial&gt;
+  &lt;/xacro:macro&gt;
+
+  &lt;!-- 實心球的慣量 --&gt;
+  &lt;xacro:macro name="inertial_sphere" params="mass radius *origin"&gt;
+    &lt;inertial&gt;
+      &lt;xacro:insert_block name="origin"/&gt;
+      &lt;mass value="${mass}"/&gt;
+      &lt;inertia ixx="${(2/5) * mass * radius * radius}" ixy="0.0" ixz="0.0"
+               iyy="${(2/5) * mass * radius * radius}" iyz="0.0"
+               izz="${(2/5) * mass * radius * radius}"/&gt;
+    &lt;/inertial&gt;
+  &lt;/xacro:macro&gt;
+
+&lt;/robot&gt;</code></pre>
+<p><code>*origin</code> 前面那個星號代表「這是一個<b>區塊參數</b>」——呼叫時可以塞一整段 XML 進去，用 <code>xacro:insert_block</code> 展開。這是 Xacro 比較進階但很實用的語法。</p>
+
+<h3>5-3　<code>urdf/my_robot.urdf.xacro</code>（主檔）</h3>
+<pre><code>&lt;?xml version="1.0"?&gt;
+&lt;robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="my_robot"&gt;
+
+  &lt;xacro:include filename="$(find my_robot_description)/urdf/inertial_macros.xacro"/&gt;
+
+  &lt;!-- ===== 尺寸參數：改這裡就好，全車跟著變 ===== --&gt;
+  &lt;xacro:property name="base_length" value="0.35"/&gt;
+  &lt;xacro:property name="base_width"  value="0.25"/&gt;
+  &lt;xacro:property name="base_height" value="0.10"/&gt;
+  &lt;xacro:property name="wheel_radius" value="0.055"/&gt;
+  &lt;xacro:property name="wheel_width"  value="0.03"/&gt;
+  &lt;xacro:property name="caster_radius" value="0.02"/&gt;
+  &lt;xacro:property name="PI" value="3.14159265359"/&gt;
+
+  &lt;!-- ===== 顏色 ===== --&gt;
+  &lt;material name="blue"&gt;&lt;color rgba="0.2 0.4 0.8 1.0"/&gt;&lt;/material&gt;
+  &lt;material name="dark"&gt;&lt;color rgba="0.15 0.15 0.15 1.0"/&gt;&lt;/material&gt;
+  &lt;material name="red"&gt;&lt;color rgba="0.8 0.2 0.2 1.0"/&gt;&lt;/material&gt;
+
+  &lt;!-- ===== base_footprint：地面上的投影點，Nav2 慣例的根 ===== --&gt;
+  &lt;link name="base_footprint"/&gt;
+
+  &lt;joint name="base_joint" type="fixed"&gt;
+    &lt;parent link="base_footprint"/&gt;
+    &lt;child  link="base_link"/&gt;
+    &lt;!-- 車體中心離地：輪半徑 + 車體高度的一半 --&gt;
+    &lt;origin xyz="0 0 ${wheel_radius + base_height/2}" rpy="0 0 0"/&gt;
+  &lt;/joint&gt;
+
+  &lt;!-- ===== 車體 ===== --&gt;
+  &lt;link name="base_link"&gt;
+    &lt;visual&gt;
+      &lt;origin xyz="0 0 0" rpy="0 0 0"/&gt;
+      &lt;geometry&gt;&lt;box size="${base_length} ${base_width} ${base_height}"/&gt;&lt;/geometry&gt;
+      &lt;material name="blue"/&gt;
+    &lt;/visual&gt;
+    &lt;collision&gt;
+      &lt;origin xyz="0 0 0" rpy="0 0 0"/&gt;
+      &lt;geometry&gt;&lt;box size="${base_length} ${base_width} ${base_height}"/&gt;&lt;/geometry&gt;
+    &lt;/collision&gt;
+    &lt;xacro:inertial_box mass="3.0" x="${base_length}" y="${base_width}" z="${base_height}"&gt;
+      &lt;origin xyz="0 0 0" rpy="0 0 0"/&gt;
+    &lt;/xacro:inertial_box&gt;
+  &lt;/link&gt;
+
+  &lt;!-- ===== 輪子巨集：左右各呼叫一次 ===== --&gt;
+  &lt;xacro:macro name="wheel" params="prefix reflect"&gt;
+    &lt;link name="${prefix}_wheel_link"&gt;
+      &lt;visual&gt;
+        &lt;origin xyz="0 0 0" rpy="0 0 0"/&gt;
+        &lt;geometry&gt;&lt;cylinder radius="${wheel_radius}" length="${wheel_width}"/&gt;&lt;/geometry&gt;
+        &lt;material name="dark"/&gt;
+      &lt;/visual&gt;
+      &lt;collision&gt;
+        &lt;origin xyz="0 0 0" rpy="0 0 0"/&gt;
+        &lt;geometry&gt;&lt;cylinder radius="${wheel_radius}" length="${wheel_width}"/&gt;&lt;/geometry&gt;
+      &lt;/collision&gt;
+      &lt;xacro:inertial_cylinder mass="0.3" length="${wheel_width}" radius="${wheel_radius}"&gt;
+        &lt;origin xyz="0 0 0" rpy="0 0 0"/&gt;
+      &lt;/xacro:inertial_cylinder&gt;
+    &lt;/link&gt;
+
+    &lt;joint name="${prefix}_wheel_joint" type="continuous"&gt;
+      &lt;parent link="base_link"/&gt;
+      &lt;child  link="${prefix}_wheel_link"/&gt;
+      &lt;!-- rpy 的 -PI/2 是關鍵：把預設站立的圓柱「放倒」成輪子 --&gt;
+      &lt;origin xyz="0 ${reflect * (base_width/2 + wheel_width/2)} ${-base_height/2}"
+              rpy="${-PI/2} 0 0"/&gt;
+      &lt;!-- axis 是「在子 link 自己的座標系裡」的旋轉軸 --&gt;
+      &lt;axis xyz="0 0 1"/&gt;
+    &lt;/joint&gt;
+  &lt;/xacro:macro&gt;
+
+  &lt;xacro:wheel prefix="left"  reflect="1"/&gt;
+  &lt;xacro:wheel prefix="right" reflect="-1"/&gt;
+
+  &lt;!-- ===== 前方萬向輪（用球體代替）===== --&gt;
+  &lt;link name="caster_link"&gt;
+    &lt;visual&gt;
+      &lt;geometry&gt;&lt;sphere radius="${caster_radius}"/&gt;&lt;/geometry&gt;
+      &lt;material name="dark"/&gt;
+    &lt;/visual&gt;
+    &lt;collision&gt;
+      &lt;geometry&gt;&lt;sphere radius="${caster_radius}"/&gt;&lt;/geometry&gt;
+    &lt;/collision&gt;
+    &lt;xacro:inertial_sphere mass="0.05" radius="${caster_radius}"&gt;
+      &lt;origin xyz="0 0 0" rpy="0 0 0"/&gt;
+    &lt;/xacro:inertial_sphere&gt;
+  &lt;/link&gt;
+
+  &lt;joint name="caster_joint" type="fixed"&gt;
+    &lt;parent link="base_link"/&gt;
+    &lt;child  link="caster_link"/&gt;
+    &lt;origin xyz="${base_length/2 - 0.04} 0 ${-base_height/2 - wheel_radius + caster_radius}"
+            rpy="0 0 0"/&gt;
+  &lt;/joint&gt;
+
+  &lt;!-- ===== 雷達：昨天手打的那行 static_transform_publisher，今天由這段取代 ===== --&gt;
+  &lt;link name="laser_link"&gt;
+    &lt;visual&gt;
+      &lt;geometry&gt;&lt;cylinder radius="0.035" length="0.04"/&gt;&lt;/geometry&gt;
+      &lt;material name="red"/&gt;
+    &lt;/visual&gt;
+    &lt;collision&gt;
+      &lt;geometry&gt;&lt;cylinder radius="0.035" length="0.04"/&gt;&lt;/geometry&gt;
+    &lt;/collision&gt;
+    &lt;xacro:inertial_cylinder mass="0.15" length="0.04" radius="0.035"&gt;
+      &lt;origin xyz="0 0 0" rpy="0 0 0"/&gt;
+    &lt;/xacro:inertial_cylinder&gt;
+  &lt;/link&gt;
+
+  &lt;joint name="laser_joint" type="fixed"&gt;
+    &lt;parent link="base_link"/&gt;
+    &lt;child  link="laser_link"/&gt;
+    &lt;origin xyz="0.10 0 ${base_height/2 + 0.02}" rpy="0 0 0"/&gt;
+  &lt;/joint&gt;
+
+&lt;/robot&gt;</code></pre>
+
+<h3>5-4　<code>launch/display.launch.py</code></h3>
+<pre><code>#!/usr/bin/env python3
+import os
+from ament_index_python.packages import get_package_share_directory
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument
+from launch.substitutions import Command, LaunchConfiguration
+from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
+
+
+def generate_launch_description():
+    pkg = get_package_share_directory('my_robot_description')
+    xacro_file = os.path.join(pkg, 'urdf', 'my_robot.urdf.xacro')
+    rviz_cfg = os.path.join(pkg, 'rviz', 'display.rviz')
+
+    gui_arg = DeclareLaunchArgument(
+        'gui', default_value='true',
+        description='是否開啟 joint_state_publisher_gui 滑桿')
+
+    # Command(...) 會在啟動時執行 `xacro 檔案`，把展開結果當成字串
+    # ParameterValue(..., value_type=str) 這層「一定要加」，
+    # 否則 launch 會把那串 XML 猜成別的型別而報錯
+    robot_description = ParameterValue(
+        Command(['xacro ', xacro_file]), value_type=str)
+
+    return LaunchDescription([
+        gui_arg,
+
+        Node(
+            package='robot_state_publisher',
+            executable='robot_state_publisher',
+            name='robot_state_publisher',
+            output='screen',
+            parameters=[{'robot_description': robot_description}],
+        ),
+
+        # 開發階段用 GUI 拉滑桿假裝馬達回報角度
+        Node(
+            package='joint_state_publisher_gui',
+            executable='joint_state_publisher_gui',
+            name='joint_state_publisher_gui',
+            condition=None,   # 想做開關可改用 IfCondition(LaunchConfiguration('gui'))
+        ),
+
+        Node(
+            package='rviz2',
+            executable='rviz2',
+            name='rviz2',
+            output='screen',
+            arguments=['-d', rviz_cfg] if os.path.exists(rviz_cfg) else [],
+        ),
+    ])</code></pre>
+
+<h3>5-5　<code>CMakeLists.txt</code>：把資料夾裝進 share</h3>
+<pre><code>cmake_minimum_required(VERSION 3.8)
+project(my_robot_description)
+
+find_package(ament_cmake REQUIRED)
+
+# ↓ 沒有這段，launch 會找不到 urdf / launch / rviz 檔案
+install(
+  DIRECTORY urdf launch rviz
+  DESTINATION share/${PROJECT_NAME}
+)
+
+ament_package()</code></pre>
+
+<h3>5-6　建置與執行</h3>
+<pre><code>cd ~/day6_ws
+colcon build
+source install/setup.bash
+
+# 【重要】先單獨驗證 xacro 語法，不要直接 launch
+xacro src/my_robot_description/urdf/my_robot.urdf.xacro &gt; /tmp/out.urdf
+check_urdf /tmp/out.urdf        # 需要 sudo apt install liburdfdom-tools
+
+ros2 launch my_robot_description display.launch.py</code></pre>
+<p><code>check_urdf</code> 會印出整棵樹的結構，例如：</p>
+<pre><code>robot name is: my_robot
+---------- Successfully Parsed XML ---------------
+root Link: base_footprint has 1 child(ren)
+    child(1):  base_link
+        child(1):  left_wheel_link
+        child(2):  right_wheel_link
+        child(3):  caster_link
+        child(4):  laser_link</code></pre>
+
+<h3>5-7　rviz2 設定（今天要練到熟）</h3>
+<ol>
+<li><b>Fixed Frame</b> 設成 <code>base_footprint</code></li>
+<li><b>Add → RobotModel</b>，把 <code>Description Topic</code> 設成 <code>/robot_description</code>（<b>ROS2 是用 topic，不是 ROS1 的 parameter</b>，這裡最容易卡）</li>
+<li><b>Add → TF</b>，勾 Show Names、Show Axes</li>
+<li>拖動 joint_state_publisher_gui 的滑桿 → 輪子應該跟著轉</li>
+<li><b>File → Save Config As</b> 存到 <code>rviz/display.rviz</code>，下次 launch 自動載入</li>
+</ol>
+
+<h3>5-8　驗證指令</h3>
+<pre><code>ros2 topic echo /robot_description --once | head -20
+ros2 topic echo /joint_states --once
+ros2 run tf2_tools view_frames
+ros2 run tf2_ros tf2_echo base_link laser_link     # 應該是 (0.10, 0, 0.07)
+ros2 topic list | grep -E "tf|joint|robot_desc"</code></pre>
+
+<h2>6. 晚上：故意弄壞（每項都做一次）</h2>
+<ol>
+<li>關掉 <code>joint_state_publisher_gui</code> 只留 robot_state_publisher → 觀察 rviz 說輪子沒有 transform。</li>
+<li>把輪子 joint 的 <code>rpy</code> 改成 <code>0 0 0</code> → 觀察輪子躺平。</li>
+<li>把 <code>base_joint</code> 的 origin z 改成 0 → 觀察車體陷進地板。</li>
+<li>把 <code>&lt;xacro:property name="PI"&gt;</code> 那行刪掉 → 觀察 <code>xacro</code> 報什麼錯、報第幾行。</li>
+<li>在 <code>launch</code> 裡拿掉 <code>ParameterValue(..., value_type=str)</code> → 觀察那個著名的型別錯誤。</li>
+</ol>
+
+<h2>7. 今日指定資源</h2>
+<ol>
+<li><b>Articulated Robotics</b>（YouTube，Josh Newans）〈Building a mobile robot〉系列的 <i>Describing a robot with URDF</i> 與 <i>Using Xacro to clean up your URDF</i> 這兩集——<b>今天的最高優先資源</b>。他做的就是這台差速輪車，跟著看完你會完全懂。他的 <code>articubot_one</code> repo 也值得直接拿來當教材範本。</li>
+<li><b>ROS2 Humble 官方文件</b>《Tutorials → Intermediate → URDF》五節（Building a visual robot model / Flexible robot model / Adding physical and collision properties / Using Xacro / Using URDF with robot_state_publisher）——當作參考手冊查用。</li>
+<li><b>URDF XML 規範</b>（wiki.ros.org/urdf/XML）——<code>joint</code>、<code>link</code>、<code>inertial</code> 三頁。這是唯一權威的欄位定義，之後遇到沒看過的標籤都查這裡。</li>
+<li><b>實際範例</b>：<code>ros2 pkg prefix turtlebot3_description</code> 找到 TurtleBot3 的 URDF 讀一次——Day 8 就會用到這台，先熟悉它的 frame 命名。</li>
+</ol>
+
+<h2>8. ✅ 今日驗收清單</h2>
+<ul class="check">
+<li><input type="checkbox"> <code>xacro my_robot.urdf.xacro</code> 展開無錯誤，<code>check_urdf</code> 印出正確的樹狀結構</li>
+<li><input type="checkbox"> rviz2 看得到一台有車體、兩個輪子、萬向輪、雷達的機器人，且<b>沒有陷進地板</b></li>
+<li><input type="checkbox"> 拖動 joint_state_publisher_gui 的滑桿，輪子確實繞正確的軸旋轉（不是躺平也不是繞錯軸）</li>
+<li><input type="checkbox"> <code>tf2_echo base_link laser_link</code> 的數值與你 URDF 裡寫的一致</li>
+<li><input type="checkbox"> 你能不看筆記說出 <b>joint 的 origin</b> 與 <b>visual 的 origin</b> 的差別，並各舉一個症狀</li>
+</ul>
+
+<h2>9. 🎓 助教筆記：Day 6 學生最會卡的地方</h2>
+
+<h3>卡點 1：rviz2 的 RobotModel 一片空白 / 顯示 Status: Error</h3>
+<div class="box">
+<p><b>錯誤訊息</b>：<code>No transform from [base_link] to [map]</code>，或 RobotModel 底下每個 link 都紅字。</p>
+<p><b>依序檢查</b>：<br>
+① <b>Fixed Frame</b> 是不是還停在預設的 <code>map</code>？（你根本沒有 map）改成 <code>base_footprint</code><br>
+② RobotModel 的 <b>Description Topic</b> 有沒有設成 <code>/robot_description</code>？<b>ROS2 改用 topic 傳 URDF，很多舊教學還在教 parameter，學生照著做一定卡</b><br>
+③ <code>ros2 topic echo /robot_description --once</code> 有沒有東西？沒有代表 robot_state_publisher 沒起來</p>
+</div>
+
+<h3>卡點 2：<code>Invalid parameter type</code> / launch 直接崩潰</h3>
+<div class="box">
+<p><b>錯誤訊息</b>：<code>InvalidParameterTypeException: Wrong parameter type, parameter {robot_description} is of type {string}, setting it to {bool} is not allowed</code>，或 <code>Failed to parse the value as YAML</code></p>
+<p><b>原因</b>：launch 檔裡少了 <code>ParameterValue(Command([...]), value_type=str)</code> 這層包裝。launch 拿到那串 XML 後會嘗試自動判斷型別，判斷錯就炸。</p>
+<p><b>解法</b>：一律用<br>
+<code>ParameterValue(Command(['xacro ', xacro_file]), value_type=str)</code><br>
+<b>注意 <code>'xacro '</code> 後面那個空格</b>，少了它會變成 <code>xacro/path/to/file</code>，找不到指令。這個空格坑到過非常多人。</p>
+</div>
+
+<h3>卡點 3：輪子躺平 / 車體歪掉 / 零件飛到旁邊</h3>
+<div class="box">
+<p><b>快速判斷法</b>（教學生這樣自我診斷）：<br>
+・零件<b>位置</b>錯 → 看 <b>joint 的 origin xyz</b><br>
+・零件<b>朝向</b>錯 → 看 <b>joint 的 origin rpy</b>（輪子需要 <code>rpy="-1.5708 0 0"</code>）<br>
+・零件位置對但<b>形狀偏移</b> → 看 <b>visual 的 origin</b><br>
+・關節<b>轉的方向</b>不對 → 看 <code>&lt;axis&gt;</code>（它是在<b>子 link 自己的座標系</b>裡定義的，不是父的）</p>
+<p><b>診斷技巧</b>：在 rviz 打開 TF 顯示（Show Axes），紅=x 綠=y 藍=z。<b>看座標軸比看模型準確得多</b>。</p>
+</div>
+
+<h3>卡點 4：xacro 展開失敗</h3>
+<div class="box">
+<p><b>常見錯誤訊息與對應原因</b>：<br>
+<code>XacroException: undefined local: 'wheel_radius'</code> → property 沒定義，或 include 的檔案沒載入<br>
+<code>Invalid parameter "reflect"</code> → 呼叫巨集時參數少給或名字打錯<br>
+<code>XML parse error: mismatched tag</code> → 標籤沒關（最常見是複製貼上時漏了 <code>&lt;/link&gt;</code>）<br>
+<code>No such file or directory: $(find ...)</code> → package 沒 build 或 CMakeLists 沒 install 那個資料夾</p>
+<p><b>SOP</b>：一律先 <code>xacro 檔案 &gt; /tmp/out.urdf</code>，它會直接給你行號。<b>不要在 launch 裡除錯 xacro</b>，錯誤訊息會被包三層看不懂。</p>
+</div>
+
+<h3>卡點 5：改了 URDF 但畫面沒變</h3>
+<div class="box">
+<p><b>原因</b>：URDF 是被 <b>install 到 <code>install/…/share/</code></b> 的，改 <code>src/</code> 底下的原始檔沒有用。</p>
+<p><b>解法</b>：重 <code>colcon build</code>。<br>
+<b>助教小技巧</b>：教學生用 <code>colcon build --symlink-install</code>，這樣 <code>src/</code> 的 urdf 改了會即時反映（因為裝的是符號連結），開發時省下大量重編時間。<b>但要提醒：這招對自訂 msg 無效</b>（Day 4 講過的）。</p>
+</div>
+
+<h3>卡點 6：mesh（.stl / .dae）載入失敗</h3>
+<div class="box">
+<p><b>錯誤訊息</b>：<code>Could not load resource [package://my_robot_description/meshes/base.stl]: Unable to open file</code></p>
+<p><b>三個原因</b>：<br>
+① CMakeLists 的 install 沒有加 <code>meshes</code> 資料夾<br>
+② 路徑寫成相對路徑，必須用 <code>package://套件名/meshes/xxx.stl</code><br>
+③ <b>單位問題</b>：CAD 匯出常是公釐，URDF 一律用<b>公尺</b>。學生的模型大 1000 倍時，rviz 會顯示一片藍色（你在模型內部）→ 用 <code>&lt;mesh ... scale="0.001 0.001 0.001"/&gt;</code> 或匯出時就改單位。</p>
+<p><b>本課程建議</b>：教學階段一律用基本幾何體（box/cylinder/sphere），<b>不要用 mesh</b>。等 Day 21 做手臂專案再引入。</p>
+</div>
+
+<h3>卡點 7：「為什麼要有 base_footprint？base_link 不夠嗎」</h3>
+<div class="box">
+<p><b>標準回答</b>：「<code>base_link</code> 是車體中心，離地有一段高度。但導航演算法關心的是<b>機器人在地面上佔了哪個位置</b>——它在做 2D 的路徑規劃。<code>base_footprint</code> 就是 base_link 在地面的投影點，z 永遠是 0。」</p>
+<p>補充：這是 Nav2 的慣例（<code>robot_base_frame</code> 預設常設為 <code>base_footprint</code>）。Day 10 設定 Nav2 參數時會直接用到，今天先把這個 frame 建起來，之後省事。</p>
+</div>
+
+<h2>10. 回報格式</h2>
+<div class="goal">
+今天請回覆我四件事：
+<ol style="margin-bottom:0">
+<li><b>完成了什麼</b>（驗收清單五項；「故意弄壞」五項做了幾項）</li>
+<li><b>卡在哪</b>——貼<b>完整</b>錯誤訊息與你當時打的指令（xacro 的錯誤請連行號一起貼）</li>
+<li><b>哪個概念沒懂</b>（兩個 origin？axis 的座標系？慣量？）</li>
+<li><b>實際花了多少時間</b>（分上午 / 下午 / 晚上）</li>
+</ol>
+</div>
+<p style="font-size:14.5px;color:#6b6a63">明天 Day 7 是第一週複習 + 綜合小專案，會把 Day 1–6 全部串起來跑一次。今天建的這台機器人請留著，之後 Day 8 進 Gazebo 時可以直接拿來加物理外掛。</p>
+
+<footer><a href="index.html">← 回索引</a>　·　Ubuntu 22.04 · ROS2 Humble · Gazebo Classic 11 · Python 3.10</footer>
+
+</div>
+</body>
+</html>
