@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Day 8｜Gazebo + TurtleBot3 環境與 /scan /odom /cmd_vel /tf 解剖</title>
+<style>
+:root{color-scheme:light}
+*{box-sizing:border-box}
+body{margin:0;background:#fcfcfb;color:#2e2c27;
+font-family:-apple-system,"Segoe UI","PingFang TC","Microsoft JhengHei",sans-serif;
+line-height:1.8;font-size:16px}
+.wrap{max-width:900px;margin:0 auto;padding:44px 22px 90px}
+h1{font-family:Georgia,"Noto Serif TC",serif;font-size:29px;margin:0 0 4px;font-weight:600;line-height:1.35}
+.meta{color:#6b6a63;font-size:14px;margin:0 0 6px}
+h2{font-size:20px;margin:44px 0 12px;padding-bottom:8px;border-bottom:2px solid #e4e3dc;font-weight:600}
+h3{font-size:17px;margin:30px 0 8px;font-weight:600;color:#1d3f5e}
+h4{font-size:15px;margin:18px 0 6px;font-weight:600;color:#4a4840}
+p{margin:10px 0}
+ul,ol{margin:10px 0;padding-left:24px}
+li{margin:5px 0}
+code{background:#f0efe9;padding:1px 5px;border-radius:3px;font-size:13.5px;
+font-family:"SF Mono",Menlo,Consolas,"Noto Sans Mono CJK TC",monospace}
+pre{background:#22262c;color:#e6e6e6;padding:16px 18px;border-radius:7px;overflow-x:auto;
+font-size:13px;line-height:1.62;margin:14px 0}
+pre code{background:none;color:inherit;padding:0;font-size:13px}
+.goal{background:#eef4ec;border-left:4px solid #4a7c59;padding:14px 18px;border-radius:0 6px 6px 0;margin:16px 0}
+.warn{background:#fdf3e7;border-left:4px solid #c8892f;padding:12px 16px;border-radius:0 6px 6px 0;margin:14px 0;font-size:15px}
+.trap{background:#fbeeee;border-left:4px solid #b3524a;padding:12px 16px;border-radius:0 6px 6px 0;margin:14px 0;font-size:15px}
+.misc{background:#f3f1fa;border-left:4px solid #6b5ca5;padding:12px 16px;border-radius:0 6px 6px 0;margin:14px 0;font-size:15px}
+table{border-collapse:collapse;width:100%;margin:14px 0;font-size:14px}
+th,td{border:1px solid #dedcd3;padding:8px 10px;text-align:left;vertical-align:top}
+th{background:#f4f3ed;font-weight:600}
+.sched{display:flex;flex-wrap:wrap;gap:12px;margin:14px 0}
+.slot{flex:1 1 240px;background:#fff;border:1px solid #e4e3dc;border-radius:7px;padding:14px 16px}
+.slot .h{font-weight:600;font-size:15px;margin-bottom:4px}
+.slot .t{color:#8a887e;font-size:12.5px;letter-spacing:.05em}
+.check li{margin:8px 0}
+hr{border:none;border-top:1px solid #e4e3dc;margin:40px 0}
+footer{margin-top:56px;padding-top:18px;border-top:1px solid #e4e3dc;font-size:13.5px;color:#6b6a63}
+a{color:#1d3f5e}
+.formula{background:#f7f6f1;border:1px solid #e4e3dc;border-radius:6px;padding:12px 16px;margin:12px 0;
+font-family:"SF Mono",Menlo,Consolas,monospace;font-size:14px;overflow-x:auto}
+@media(max-width:640px){.wrap{padding:30px 15px 70px}h1{font-size:23px}pre{font-size:12px}}
+</style>
+</head>
+<body><div class="wrap">
+
+<h1>Day 8｜Gazebo + TurtleBot3 環境與 /scan /odom /cmd_vel /tf 解剖</h1>
+<p class="meta">2026-08-12（三）· 第二週 第 1 天 · 特訓第 8 / 30 天</p>
+<p class="meta">Ubuntu 22.04 · ROS 2 Humble · Gazebo Classic 11 · Python 3.10</p>
+
+<div class="goal">
+<strong>今日目標</strong><br>
+今天結束時，你要能在 Gazebo 裡跑起一台 TurtleBot3，用指令逐欄位講出 <code>/scan</code>、<code>/odom</code>、<code>/cmd_vel</code>、<code>/tf</code> 四個 topic 各自「誰發、發什麼、每個數字什麼意思」，並且自己寫出一支 Python node：訂閱雷射、算出正前方距離、太近就自動停車。
+</div>
+
+<p>第一週你學的是「ROS 2 這個系統怎麼運作」。從今天起進入第二週，主角換成「一台真的會動的機器人」。Gazebo 是你接下來 Nav2、SLAM、調參演練的整個舞台，所以今天花時間把環境弄穩、把四個 topic 看透，後面十天會輕鬆非常多。</p>
+
+<h2>時段安排（總計約 5.5 小時）</h2>
+<div class="sched">
+<div class="slot"><div class="t">上午 · 理論</div><div class="h">2.0 小時</div>模擬器在做什麼、Gazebo 與 ROS 的橋接機制、四大訊息型別逐欄位、模擬時間與 QoS 兩個大坑</div>
+<div class="slot"><div class="t">下午 · 實作</div><div class="h">2.5 小時</div>安裝 TurtleBot3、跑起 world、teleop、用 CLI 解剖每個 topic、畫 tf tree、寫避障 node</div>
+<div class="slot"><div class="t">晚上 · 收尾</div><div class="h">1.0 小時</div>整理助教筆記、跑驗收清單、把今天遇到的錯誤訊息抄進 FAQ 草稿</div>
+</div>
+
+<hr>
+
+<h2>知識點逐個講解</h2>
+
+<h3>1. 為什麼要有 Gazebo：模擬器到底在模擬什麼</h3>
+
+<h4>它解決什麼問題</h4>
+<p>實體機器人有三個要命的成本：撞壞很貴、每次實驗要重新擺場地很慢、而且「同一件事重跑一百次」幾乎做不到。導航調參、強化學習訓練這種需要大量試錯的工作，在實體機上根本做不完。模擬器把機器人放進一個可以隨時重置、隨時複製、隨時加速的虛擬世界。</p>
+
+<h4>白話解釋 + 比喻</h4>
+<p>Gazebo 做三件事：<strong>(a) 算物理</strong>——輪子有摩擦力、車有質量、撞到牆會停；<strong>(b) 假裝感測器</strong>——用射線投射（ray casting）算出「如果這裡有一顆雷射，它會量到多遠」，再包成一個標準 ROS 訊息發出來；<strong>(c) 接收指令</strong>——收到 <code>/cmd_vel</code> 就真的去轉虛擬輪子。</p>
+<p>比喻：Gazebo 像是一間「飛行模擬艙」。艙外的真飛機不存在，但艙內的儀表板（topic）跟真飛機一模一樣。你的 ROS 程式坐在駕駛座上，它<strong>完全不知道</strong>自己在模擬艙裡——這正是重點：<em>同一份程式碼，換到真機上不用改</em>。這就是為什麼後面 Sim2Real 那一天，我們談的是「差異有多大」，而不是「要不要重寫」。</p>
+
+<h4>學生常見誤解</h4>
+<div class="misc"><strong>誤解：「Gazebo 是一個 3D 顯示器，跟 RViz 差不多。」</strong><br>
+完全不同。<strong>Gazebo 是產生資料的地方（模擬真實世界）；RViz 是顯示資料的地方（模擬機器人的腦內畫面）</strong>。Gazebo 裡看到的牆是真的存在於物理世界；RViz 裡看到的牆是機器人「以為」有牆。兩邊不一致時，就是機器人認知出錯了——這個區別是之後 Nav2 除錯的核心直覺，今天一定要建立起來。</div>
+
+<h3>2. Gazebo Classic 11 vs. 新版 Gazebo（Ignition / Gazebo Sim）</h3>
+<p>這是初學者最容易在網路教學裡踩到的版本地雷。歷史上 Gazebo 分兩條線：</p>
+<table>
+<tr><th></th><th>Gazebo Classic 11</th><th>Gazebo Sim（舊名 Ignition）</th></tr>
+<tr><td>指令</td><td><code>gazebo</code>、<code>gzserver</code>、<code>gzclient</code></td><td><code>gz sim</code>（或 <code>ign gazebo</code>）</td></tr>
+<tr><td>ROS 橋接套件</td><td><code>gazebo_ros_pkgs</code></td><td><code>ros_gz_bridge</code></td></tr>
+<tr><td>URDF 內的 plugin 名稱</td><td><code>libgazebo_ros_diff_drive.so</code></td><td><code>gz-sim-diff-drive-system</code></td></tr>
+<tr><td>與 Humble 的搭配</td><td>✅ 本課程鎖定</td><td>可用但教材少</td></tr>
+</table>
+<div class="warn"><strong>本課程一律使用 Gazebo Classic 11。</strong>如果你 Google 到的文章裡出現 <code>gz sim</code> 或 <code>ros_gz</code>，那是另一條線，plugin 寫法完全不相容，直接跳過那篇。判斷方法：看指令是 <code>gazebo</code> 還是 <code>gz</code>。</div>
+
+<h3>3. Gazebo 跟 ROS 是怎麼接起來的：plugin 機制</h3>
+
+<h4>它解決什麼問題</h4>
+<p>Gazebo 本身是獨立軟體，它不懂 ROS。那 <code>/scan</code> 是誰發出來的？答案是 <strong>plugin（外掛）</strong>：一段被載入 Gazebo 行程內部的 C++ 共享函式庫，它一邊讀 Gazebo 的物理狀態，一邊當一個 ROS 2 node 把資料 publish 出去。</p>
+
+<h4>白話解釋 + 比喻</h4>
+<p>plugin 像是「裝在模擬艙儀表板背後的翻譯機」。Gazebo 內部用自己的語言記錄「這台車現在在 (1.2, 0.4)、朝向 30 度」，diff_drive plugin 把它翻譯成 ROS 的 <code>nav_msgs/Odometry</code> 發到 <code>/odom</code>，同時把 <code>/cmd_vel</code> 的 ROS 訊息翻譯回去變成輪子轉速。</p>
+<p>你在 URDF/Xacro 裡看到的這種段落，就是在裝翻譯機（TurtleBot3 的 <code>turtlebot3_burger.urdf.xacro</code> 裡就有）：</p>
+<pre><code>&lt;!-- URDF 裡的 gazebo 標籤：只有 Gazebo 會讀，rviz2 會忽略 --&gt;
+&lt;gazebo&gt;
+  &lt;plugin name="turtlebot3_diff_drive"
+          filename="libgazebo_ros_diff_drive.so"&gt;
+    &lt;ros&gt;
+      &lt;!-- remapping：plugin 預設發 /odom，這裡可以改名 --&gt;
+    &lt;/ros&gt;
+    &lt;left_joint&gt;wheel_left_joint&lt;/left_joint&gt;
+    &lt;right_joint&gt;wheel_right_joint&lt;/right_joint&gt;
+    &lt;wheel_separation&gt;0.160&lt;/wheel_separation&gt;   &lt;!-- 兩輪間距 (m) --&gt;
+    &lt;wheel_diameter&gt;0.066&lt;/wheel_diameter&gt;        &lt;!-- 輪徑 (m) --&gt;
+    &lt;odometry_frame&gt;odom&lt;/odometry_frame&gt;
+    &lt;robot_base_frame&gt;base_footprint&lt;/robot_base_frame&gt;
+    &lt;publish_odom&gt;true&lt;/publish_odom&gt;
+    &lt;publish_odom_tf&gt;true&lt;/publish_odom_tf&gt;       &lt;!-- 關鍵：這個才會發 odom→base_footprint 的 tf --&gt;
+  &lt;/plugin&gt;
+&lt;/gazebo&gt;</code></pre>
+
+<h4>學生常見誤解</h4>
+<div class="misc"><strong>誤解：「我在 URDF 裡寫了一顆 lidar link，Gazebo 就會發 /scan。」</strong><br>
+不會。<code>&lt;link&gt;</code> 只是「一塊有形狀有重量的東西」，把它畫成雷射的樣子不會讓它變成雷射。必須額外加 <code>&lt;gazebo reference="base_scan"&gt;&lt;sensor type="ray"&gt;...&lt;plugin filename="libgazebo_ros_ray_sensor.so"&gt;</code> 才會真的有資料。<strong>「幾何」和「功能」是兩件事</strong>——這是 Day 6 URDF 跟今天銜接的關鍵點。</div>
+
+<h3>4. <code>/scan</code>：sensor_msgs/LaserScan 逐欄位</h3>
+<p>這是整個 SLAM 與導航的原料，每個欄位都要能講。</p>
+<table>
+<tr><th>欄位</th><th>型別</th><th>物理意義</th></tr>
+<tr><td><code>header.stamp</code></td><td>time</td><td>這一圈掃描的時間戳。<strong>tf 要靠它做時間對齊</strong>，錯了整個導航就歪</td></tr>
+<tr><td><code>header.frame_id</code></td><td>string</td><td>這些距離是「以哪個座標系的原點量出來的」，TurtleBot3 是 <code>base_scan</code></td></tr>
+<tr><td><code>angle_min</code> / <code>angle_max</code></td><td>float32 (rad)</td><td>掃描的起始 / 結束角度。TB3 是 0 到 2π（360 度）</td></tr>
+<tr><td><code>angle_increment</code></td><td>float32 (rad)</td><td>相鄰兩束雷射的夾角。TB3 約 0.0175 rad（1 度）</td></tr>
+<tr><td><code>range_min</code> / <code>range_max</code></td><td>float32 (m)</td><td>感測器可信的距離範圍。超出範圍的值<strong>不可以拿來用</strong></td></tr>
+<tr><td><code>ranges[]</code></td><td>float32[]</td><td>核心資料：一整圈的距離陣列，單位公尺</td></tr>
+<tr><td><code>intensities[]</code></td><td>float32[]</td><td>反射強度。多數模擬與便宜雷達是空的或全 0，忽略即可</td></tr>
+<tr><td><code>scan_time</code> / <code>time_increment</code></td><td>float32 (s)</td><td>轉一圈的時間 / 每束之間的時間。高速移動時做去畸變（deskew）才會用到</td></tr>
+</table>
+
+<p><strong>最重要的一條公式：陣列索引怎麼變成角度。</strong></p>
+<div class="formula">angle(i) = angle_min + i × angle_increment</div>
+<p>逐項解釋：<code>i</code> 是 <code>ranges</code> 陣列的第幾個元素（從 0 開始）；<code>angle_increment</code> 是每往後一格轉多少弧度；算出來的 <code>angle(i)</code> 是<strong>相對於 frame_id 那個座標系 +X 軸（機器人正前方）</strong>的角度，逆時針為正（ROS 統一右手座標系：X 前、Y 左、Z 上）。反過來，如果你想知道「正前方的距離」，就是 <code>i = 0</code>（因為 angle_min = 0 且正前方就是 0 度）；「正左方 90 度」就是 <code>i = 90</code>；「正右方」是 <code>i = 270</code>。</p>
+
+<h4>學生常見誤解</h4>
+<div class="misc"><strong>誤解：「<code>min(msg.ranges)</code> 就是最近障礙物的距離。」</strong><br>
+會炸。<code>ranges</code> 裡通常混著 <code>inf</code>（那個方向什麼都沒打到）和 <code>0.0</code> 或 <code>nan</code>（無效讀值）。<code>min()</code> 很可能回傳 <code>0.0</code>，讓你的程式以為「前面貼著一面牆」而永遠停住。<strong>正確做法是先過濾</strong>：只留下 <code>range_min &lt; r &lt; range_max</code> 且 <code>math.isfinite(r)</code> 的值。這是助教會被問到爛的第一名問題。</div>
+
+<h3>5. <code>/odom</code>：nav_msgs/Odometry 與「里程計會漂」</h3>
+
+<h4>它解決什麼問題</h4>
+<p>機器人要知道「我從出發點走到哪了」。最便宜的方法是數輪子轉了幾圈，再用幾何積分推算位置——這就是輪式里程計（wheel odometry）。</p>
+
+<h4>結構</h4>
+<pre><code>nav_msgs/Odometry
+  header.stamp                 # 時間
+  header.frame_id   = "odom"           # 這個位姿是在 odom 座標系裡表達的
+  child_frame_id    = "base_footprint" # 被描述的對象是誰
+  pose.pose.position.{x,y,z}           # 位置 (m)
+  pose.pose.orientation.{x,y,z,w}      # 姿態，四元數（Day 5 學過）
+  pose.covariance[36]                  # 6x6 共變異數，代表「我對這個估計有多不確定」
+  twist.twist.linear.{x,y,z}           # 速度 (m/s)，在 child_frame 裡表達
+  twist.twist.angular.{x,y,z}          # 角速度 (rad/s)
+  twist.covariance[36]</code></pre>
+
+<h4>白話解釋 + 比喻</h4>
+<p><code>frame_id</code> 和 <code>child_frame_id</code> 這組搭配的意思是：<strong>「base_footprint 這個東西，在 odom 這個座標系裡，位在哪、朝哪」</strong>。比喻：你閉著眼睛從家門口走出去，每一步都默數「往前 70 公分、左轉 30 度」。你算出來的位置就是 odometry。它<strong>短時間內非常準、非常平滑</strong>（不會突然跳），但<strong>誤差只會累積不會修正</strong>——走一百步之後你可能差了兩公尺，而且你自己不知道。</p>
+<p>這就是為什麼之後 Nav2 要有 <code>map → odom</code> 這一層：AMCL 用雷射比對地圖，算出「你以為的位置」和「真實位置」的偏差，把它塞進 <code>map→odom</code> 這個轉換裡去修正。<strong>odom 負責平滑、map 負責正確</strong>，兩層分工——Day 10 你會再遇到這句話。</p>
+
+<h4>學生常見誤解</h4>
+<div class="misc"><strong>誤解：「Gazebo 裡的 /odom 是完美的真值（ground truth），所以模擬沒有漂移問題。」</strong><br>
+不一定。<code>libgazebo_ros_diff_drive.so</code> 預設是從<strong>關節角度積分</strong>算出來的，只要輪子打滑（撞牆、加速過猛）就會漂，跟真機同一個病。真正的真值要另外用 <code>libgazebo_ros_p3d.so</code>（ground truth plugin）才拿得到。所以在 Gazebo 裡練習「處理里程計漂移」是有意義的。</div>
+
+<h3>6. <code>/cmd_vel</code>：geometry_msgs/Twist 與差動輪的限制</h3>
+<p>結構極簡，只有兩個 3D 向量：</p>
+<pre><code>geometry_msgs/Twist
+  linear.x   # 前進速度 m/s（正=前進，負=倒車）
+  linear.y   # 側移速度 —— 差動輪機器人「永遠是 0」
+  linear.z   # 垂直 —— 地面機器人永遠 0
+  angular.x  # roll  —— 地面機器人永遠 0
+  angular.y  # pitch —— 地面機器人永遠 0
+  angular.z  # yaw 角速度 rad/s（正=左轉/逆時針）</code></pre>
+<p><strong>為什麼 <code>linear.y</code> 必須是 0？</strong>這叫<strong>非完整約束（nonholonomic constraint）</strong>。白話：兩顆輪子只能往前後滾，不能橫著滑，所以車子沒有辦法「原地向左平移」——就像汽車不能橫著開進停車格，只能靠倒車入庫這種「繞路」的方式達成。麥克納姆輪（mecanum）或全向輪機器人才能用 <code>linear.y</code>。</p>
+<p>plugin 內部會把 Twist 換算成左右輪速度：</p>
+<div class="formula">v_left  = linear.x − angular.z × (L / 2)<br>
+v_right = linear.x + angular.z × (L / 2)</div>
+<p>其中 <code>L</code> 是 <code>wheel_separation</code>（兩輪中心距離，TB3 burger 是 0.160 m）。看這條式子就懂了：<code>angular.z</code> 是靠「左右輪速度差」造出來的；<code>linear.x = 0</code> 而 <code>angular.z ≠ 0</code> 時，左右輪一正一反，就是原地自轉。</p>
+
+<h4>學生常見誤解</h4>
+<div class="misc"><strong>誤解：「我發一次 <code>/cmd_vel</code>，機器人就會一直走。」</strong><br>
+在模擬裡確實會一直走（plugin 記住最後一個指令），但這是<strong>危險的習慣</strong>。實機的驅動器普遍有 watchdog：超過 0.2～0.5 秒沒收到新指令就自動煞停，避免程式當掉後機器人衝出去。所以正確寫法是<strong>用 timer 以固定頻率（10～20 Hz）持續發布</strong>，而不是發一次就走人。Day 24 講實機安全時會再強調一次。</div>
+
+<h3>7. <code>/tf</code> 與 <code>/tf_static</code>：模擬中誰在發什麼</h3>
+<p>Day 5 你學過 tf2 的原理，今天要落到「實際上有哪些節點在餵資料」。跑起 TurtleBot3 模擬後，tf tree 長這樣：</p>
+<div class="formula">odom ──(diff_drive plugin，動態，~30Hz)──&gt; base_footprint<br>
+base_footprint ──(robot_state_publisher，靜態)──&gt; base_link<br>
+base_link ──(robot_state_publisher，靜態)──&gt; base_scan / imu_link / caster<br>
+base_link ──(robot_state_publisher，由 /joint_states 驅動)──&gt; wheel_left_link / wheel_right_link</div>
+<p>要記住的分工：</p>
+<ul>
+<li><strong>diff_drive plugin</strong> 發 <code>odom → base_footprint</code>。這是唯一會隨機器人移動而改變的那一段。</li>
+<li><strong>robot_state_publisher</strong> 讀 URDF，把所有 <code>fixed</code> joint 一次發到 <code>/tf_static</code>（只發一次，用 TRANSIENT_LOCAL QoS 讓晚加入的節點也收得到），把 <code>continuous</code>/<code>revolute</code> joint 依 <code>/joint_states</code> 持續發到 <code>/tf</code>。</li>
+<li><strong>目前還沒有 <code>map</code> frame</strong>。Day 9 開 slam_toolbox、Day 10 開 AMCL 之後才會補上 <code>map → odom</code>。今天如果 RViz 裡把 Fixed Frame 設成 <code>map</code> 會整片報錯，這是正常的，設成 <code>odom</code> 就好。</li>
+</ul>
+
+<h3>8. 模擬時間 <code>use_sim_time</code>：今天最大的坑</h3>
+
+<h4>它解決什麼問題</h4>
+<p>Gazebo 的物理計算不一定跟真實時間同速——GPU 慢的時候可能只跑 0.6 倍速。如果你的節點用電腦時鐘（wall clock）打時間戳，Gazebo 用模擬時鐘，兩邊時間軸就對不上，tf 查詢會不斷失敗。</p>
+
+<h4>白話解釋 + 比喻</h4>
+<p>Gazebo 會在 <code>/clock</code> 這個 topic 上廣播「模擬世界現在幾點」。當一個節點設定 <code>use_sim_time:=true</code>，它就<strong>不看自己的手錶，改看牆上那面公用時鐘</strong>。比喻：整個劇組拍片時都看場記的碼表，不看自己的手機，這樣剪接才對得起來。只要有一個人看自己手機，他那段畫面就永遠對不上。</p>
+<p><strong>規則：只要 Gazebo 在跑，你啟動的每一個節點都要開 sim time，一個都不能漏。</strong></p>
+<pre><code># 用 CLI 跑節點時
+ros2 run my_pkg my_node --ros-args -p use_sim_time:=true
+
+# rviz2 也要
+ros2 run rviz2 rviz2 --ros-args -p use_sim_time:=true</code></pre>
+
+<h4>學生常見誤解</h4>
+<div class="misc"><strong>誤解：「<code>Lookup would require extrapolation into the past</code> 是 tf 設定寫錯了。」</strong><br>
+九成不是。這行錯誤最常見的原因就是<strong>某個節點忘了開 <code>use_sim_time</code></strong>：它用 2026 年的真實時間去查一個「開機才 30 秒」的模擬時間軸，當然查不到。看到這個錯誤，第一個動作是 <code>ros2 param get /那個節點 use_sim_time</code>，不是去改 tf。</div>
+
+<h3>9. QoS 不匹配：訂閱了 /scan 卻一筆資料都收不到</h3>
+
+<h4>它解決什麼問題</h4>
+<p>Day 2 學過 QoS。今天是第一次真正被它咬。感測器資料的特性是「量大、頻繁、丟一兩筆沒關係，但寧可丟也不要延遲」，所以 ROS 2 定義了 <code>rclpy.qos.qos_profile_sensor_data</code>：<strong>Reliability = BEST_EFFORT、Depth = 5</strong>。Gazebo 的 ray sensor plugin 就是用這個 profile 發 <code>/scan</code>。</p>
+
+<h4>白話解釋 + 比喻</h4>
+<p>而 <code>create_subscription</code> 如果你只填一個數字當 QoS（例如 <code>10</code>），拿到的是預設 profile：<strong>RELIABLE</strong>。DDS 的相容規則是「訂閱端不能要求比發布端更強的保證」——publisher 說「我盡力送，不保證」，subscriber 說「我要求每筆必到」，<strong>談不攏，連線根本不會建立</strong>。</p>
+<p>比喻：寄件人只肯用平信，收件人堅持要掛號回執。郵局的規定是談不攏就不收件——所以不是「信寄丟了」，而是<strong>從頭到尾一封都沒寄出</strong>。這就是為什麼症狀是「callback 完全沒被呼叫過」，而不是「偶爾漏收」。</p>
+
+<div class="trap"><strong>診斷指令：</strong><code>ros2 topic info /scan --verbose</code>，看 Publisher 和 Subscriber 兩邊的 <code>Reliability</code> 是不是一樣。<code>ros2 topic echo /scan</code> 看得到、但你的 node 收不到 → 幾乎必然是 QoS（<code>echo</code> 會自動適配，你的程式不會）。</div>
+
+<hr>
+
+<h2>可直接複製貼上的指令與程式碼</h2>
+
+<h3>A. 安裝 TurtleBot3 模擬環境</h3>
+<pre><code># ---- 1. 安裝 TurtleBot3 與 Gazebo 相關套件（apt 版，最省事）----
+sudo apt update
+sudo apt install -y \
+  ros-humble-turtlebot3 \
+  ros-humble-turtlebot3-msgs \
+  ros-humble-turtlebot3-simulations \
+  ros-humble-gazebo-ros-pkgs \
+  ros-humble-tf2-tools \
+  ros-humble-rqt-graph \
+  ros-humble-rqt-tf-tree
+
+# ---- 2. 設定環境變數（每開一個新 terminal 都要，所以寫進 .bashrc）----
+echo "source /opt/ros/humble/setup.bash"            &gt;&gt; ~/.bashrc
+echo "export TURTLEBOT3_MODEL=burger"               &gt;&gt; ~/.bashrc
+echo "export ROS_DOMAIN_ID=30"                      &gt;&gt; ~/.bashrc   # 同網段避免互相干擾
+# Gazebo 要找得到 TB3 的模型檔，否則世界會缺物件
+echo "export GAZEBO_MODEL_PATH=\$GAZEBO_MODEL_PATH:/opt/ros/humble/share/turtlebot3_gazebo/models" &gt;&gt; ~/.bashrc
+source ~/.bashrc
+
+# ---- 3. 驗證 ----
+echo $TURTLEBOT3_MODEL      # 應該印出 burger
+gazebo --version | head -1  # 應該是 11.x</code></pre>
+
+<h3>B. 啟動世界並操控</h3>
+<pre><code># === Terminal 1：啟動 Gazebo + TurtleBot3（第一次跑會很慢，在下載/編譯 shader）===
+ros2 launch turtlebot3_gazebo turtlebot3_world.launch.py
+
+# === Terminal 2：鍵盤遙控（w/x 加減速、a/d 轉向、s 或空白鍵停止）===
+ros2 run turtlebot3_teleop teleop_keyboard
+
+# === Terminal 3：RViz 觀察（注意 Fixed Frame 要設 odom，今天還沒有 map）===
+ros2 launch turtlebot3_bringup rviz2.launch.py</code></pre>
+
+<h3>C. 用 CLI 解剖四個 topic（今天的核心練習）</h3>
+<pre><code># ---- 先看全景 ----
+ros2 topic list -t                 # -t 會一併列出訊息型別
+ros2 node list
+rqt_graph                          # 圖形化：誰發給誰
+
+# ---- /scan：先看型別定義，再看實際資料 ----
+ros2 interface show sensor_msgs/msg/LaserScan
+ros2 topic hz /scan                            # 頻率，TB3 約 5 Hz
+ros2 topic info /scan --verbose                # ★ 看 QoS，注意 Reliability=BEST_EFFORT
+# 只印 header 跟角度參數，不要被 360 筆 ranges 洗版
+ros2 topic echo /scan --field angle_increment --once
+ros2 topic echo /scan --field range_max --once
+# 印出正前方那一束（index 0）
+ros2 topic echo /scan --field ranges[0]
+
+# ---- /odom ----
+ros2 topic echo /odom --field pose.pose.position --once
+ros2 topic echo /odom --field twist.twist --once
+ros2 topic echo /odom --field child_frame_id --once   # base_footprint
+
+# ---- /cmd_vel：從命令列直接開車（-r 2 = 以 2Hz 重複發，符合 watchdog 習慣）----
+ros2 topic pub -r 2 /cmd_vel geometry_msgs/msg/Twist \
+  "{linear: {x: 0.1, y: 0.0, z: 0.0}, angular: {x: 0.0, y: 0.0, z: 0.5}}"
+# Ctrl+C 後車子可能還在動，記得補一筆全 0 煞車：
+ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist \
+  "{linear: {x: 0.0}, angular: {z: 0.0}}"
+
+# ---- /tf：三種看法 ----
+ros2 run tf2_ros tf2_echo odom base_footprint          # 印出即時轉換
+ros2 run tf2_tools view_frames                          # 產生 frames.pdf（tf tree 圖）
+ros2 topic echo /tf_static --once                       # 靜態轉換只發一次</code></pre>
+
+<h3>D. 今日程式：LaserScan 避障節點</h3>
+<p>建在 Day 3 做好的 workspace 裡。三個重點：<strong>sensor_data QoS</strong>、<strong>過濾 inf/nan</strong>、<strong>用 timer 固定頻率發 cmd_vel</strong>。</p>
+<pre><code># ~/ros2_ws/src/tb3_play/tb3_play/obstacle_stop.py
+#!/usr/bin/env python3
+import math
+import rclpy
+from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data      # ★ 關鍵：BEST_EFFORT
+from sensor_msgs.msg import LaserScan
+from geometry_msgs.msg import Twist
+
+
+class ObstacleStop(Node):
+    def __init__(self):
+        super().__init__('obstacle_stop')
+
+        # 參數化，方便之後用 ros2 param set 即時調整
+        self.declare_parameter('stop_distance', 0.35)   # 公尺
+        self.declare_parameter('forward_speed', 0.15)   # m/s
+        self.declare_parameter('cone_deg', 20)          # 正前方 ±20 度算「前方」
+
+        # ★ 用 qos_profile_sensor_data，否則 callback 一次都不會被呼叫
+        self.sub = self.create_subscription(
+            LaserScan, '/scan', self.scan_cb, qos_profile_sensor_data)
+        self.pub = self.create_publisher(Twist, '/cmd_vel', 10)
+
+        # ★ 固定 10Hz 發布，模擬實機 watchdog 的正確習慣
+        self.timer = self.create_timer(0.1, self.tick)
+
+        self.front_dist = float('inf')
+        self.got_scan = False
+        self.get_logger().info('obstacle_stop 啟動，等待 /scan ...')
+
+    def scan_cb(self, msg: LaserScan):
+        if not self.got_scan:
+            self.got_scan = True
+            self.get_logger().info(
+                f'收到第一筆 scan：{len(msg.ranges)} 束, '
+                f'angle_min={msg.angle_min:.3f}, inc={msg.angle_increment:.4f}')
+
+        cone = math.radians(self.get_parameter('cone_deg').value)
+        valid = []
+        for i, r in enumerate(msg.ranges):
+            # ★ 三重過濾：非有限值、超出感測器可信範圍，一律丟掉
+            if not math.isfinite(r):
+                continue
+            if r < msg.range_min or r > msg.range_max:
+                continue
+            # index -> 角度，再正規化到 (-pi, pi] 方便判斷「前方」
+            ang = msg.angle_min + i * msg.angle_increment
+            ang = math.atan2(math.sin(ang), math.cos(ang))
+            if abs(ang) <= cone:
+                valid.append(r)
+
+        # 前方沒有任何有效讀值 = 空曠，視為無限遠（不是 0！）
+        self.front_dist = min(valid) if valid else float('inf')
+
+    def tick(self):
+        cmd = Twist()
+        if not self.got_scan:
+            self.pub.publish(cmd)          # 還沒資料就保持靜止
+            return
+
+        stop_d = self.get_parameter('stop_distance').value
+        speed = self.get_parameter('forward_speed').value
+
+        if self.front_dist > stop_d:
+            cmd.linear.x = speed
+            cmd.angular.z = 0.0
+        else:
+            cmd.linear.x = 0.0
+            cmd.angular.z = 0.5            # 停下來並原地左轉找路
+            self.get_logger().warn(
+                f'前方 {self.front_dist:.2f} m，煞車並轉向', throttle_duration_sec=1.0)
+
+        self.pub.publish(cmd)
+
+    def on_shutdown(self):
+        self.pub.publish(Twist())          # ★ 離開前一定要送一筆全 0
+
+
+def main():
+    rclpy.init()
+    node = ObstacleStop()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.on_shutdown()
+        node.destroy_node()
+        rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()</code></pre>
+
+<pre><code># ---- 註冊進 setup.py 的 entry_points ----
+# entry_points={
+#     'console_scripts': [
+#         'obstacle_stop = tb3_play.obstacle_stop:main',
+#     ],
+# },
+
+# ---- build & run ----
+cd ~/ros2_ws
+colcon build --packages-select tb3_play --symlink-install
+source install/setup.bash
+
+# ★ 一定要開 use_sim_time
+ros2 run tb3_play obstacle_stop --ros-args -p use_sim_time:=true
+
+# 另開一個 terminal 即時調參數，觀察行為變化（這是 Day 11 調參演練的預習）
+ros2 param set /obstacle_stop stop_distance 0.6
+ros2 param set /obstacle_stop forward_speed 0.05</code></pre>
+
+<hr>
+
+<h2>今日指定資源</h2>
+<ol>
+<li><strong>Articulated Robotics — "Making a Mobile Robot" 系列，第 10 集《Simulating with Gazebo》與第 11 集《Simulating a LIDAR》</strong>。Josh Newans 把 URDF 的 <code>&lt;gazebo&gt;</code> plugin 標籤逐行講一遍，是全網對「link 跟 sensor 的差別」講得最清楚的。今天只看這兩集，其他先不要跳。</li>
+<li><strong>ROBOTIS TurtleBot3 e-Manual → 「Simulation」章節的 Gazebo Simulation 小節</strong>（<code>emanual.robotis.com/docs/en/platform/turtlebot3/simulation/</code>）。重點看三個 world 的差別（empty / world / house）與 <code>TURTLEBOT3_MODEL</code> 的說明，Day 9 建圖會直接用到 house。</li>
+<li><strong>ROS 2 Humble 官方文件 → Concepts → "Clock and Time"，以及 Tutorials 裡的 "Using time"</strong>。專門讀 <code>use_sim_time</code> 與 <code>/clock</code> 那一段，把今天知識點 8 補完整。</li>
+<li><strong>ROS 2 Humble 官方文件 → "About Quality of Service settings"，只讀 Reliability 與「QoS compatibility」那張相容性表格</strong>。看懂那張表，知識點 9 的錯誤你一輩子不會再卡。</li>
+</ol>
+
+<hr>
+
+<h2>✅ 今日驗收清單</h2>
+<ul class="check">
+<li>☐ <code>ros2 launch turtlebot3_gazebo turtlebot3_world.launch.py</code> 能開起來，Gazebo 視窗裡看得到一台 burger 和一圈六角形障礙物，<code>ros2 topic hz /scan</code> 有穩定輸出。</li>
+<li>☐ 不看筆記，能對著 <code>ros2 interface show sensor_msgs/msg/LaserScan</code> 的輸出，口頭講出 <code>angle_increment</code>、<code>range_max</code>、<code>ranges</code> 三個欄位的意思，並寫出 index→角度的公式。</li>
+<li>☐ <code>ros2 run tf2_tools view_frames</code> 產生的 <code>frames.pdf</code> 裡，你能指出哪一段是 diff_drive plugin 發的、哪些是 robot_state_publisher 發的，並解釋為什麼今天還沒有 <code>map</code>。</li>
+<li>☐ <code>obstacle_stop</code> 節點能跑，機器人往前走並在牆前約 0.35 m 停下轉向；用 <code>ros2 param set</code> 改 <code>stop_distance</code> 為 0.6 後，行為有立刻改變。</li>
+<li>☐ 你能故意製造 QoS 不匹配（把 <code>qos_profile_sensor_data</code> 改成 <code>10</code>），重現「callback 完全不被呼叫」的現象，再用 <code>ros2 topic info /scan --verbose</code> 診斷出來。<strong>這一項是明天的伏筆，務必做。</strong></li>
+</ul>
+
+<hr>
+
+<h2>🎓 助教筆記：學生最常卡住的 5 個問題</h2>
+
+<h3>卡點 1：Gazebo 開起來是全黑 / 卡在 white screen / 直接閃退</h3>
+<p><strong>錯誤訊息：</strong><code>[gzclient] VMware: vmw_ioctl_command error Invalid argument.</code> 或 <code>[Err] [REST.cc:205] Error in REST request</code>，或者完全沒訊息就退出。</p>
+<p><strong>診斷指令：</strong></p>
+<pre><code>echo $DISPLAY                      # 空的 = 沒有 X11，例如 SSH 沒開 -X
+glxinfo | grep "OpenGL renderer"   # 應顯示 NVIDIA；顯示 llvmpipe 代表在用軟體渲染
+nvidia-smi                         # 確認驅動有載入
+ps aux | grep gz                   # 看有沒有殘留的 gzserver</code></pre>
+<p><strong>解法：</strong></p>
+<ul>
+<li>REST 那個 Err 是要連 Gazebo 模型網站失敗，<strong>純警告，不影響</strong>——先讓學生別慌。改 <code>~/.ignition/fuel/config.yaml</code> 的 url 可消除。</li>
+<li>虛擬機 / 遠端桌面環境跑不動 3D：<code>export SVGA_VGPU10=0</code>，或改用無畫面模式 <code>gzserver</code> only（launch 加 <code>gui:=false</code>），資料照樣有，只是看不到畫面。</li>
+<li>顯示 <code>llvmpipe</code> 代表沒吃到 NVIDIA：檢查 <code>prime-select nvidia</code> 後重開機。</li>
+<li>第一次啟動就是會慢 30～90 秒（下載模型 + 編譯 shader），叫學生等，不要一直 Ctrl+C 重來。</li>
+</ul>
+
+<h3>卡點 2：<code>[Err] [Model.cc] Missing model: turtlebot3_burger</code> / 世界是空的沒有機器人</h3>
+<p><strong>根因：</strong>九成是 <code>TURTLEBOT3_MODEL</code> 沒設，或設在別的 terminal。剩下一成是 <code>GAZEBO_MODEL_PATH</code> 沒包含 turtlebot3_gazebo/models。</p>
+<pre><code>echo $TURTLEBOT3_MODEL             # 空的就是元兇
+echo $GAZEBO_MODEL_PATH
+export TURTLEBOT3_MODEL=burger     # 立即修
+</code></pre>
+<div class="trap"><strong>助教話術：</strong>「環境變數只活在<em>那一個</em> terminal 裡。你剛剛 export 的那個視窗有效，新開的視窗沒有。要每個視窗都有，就寫進 <code>~/.bashrc</code>。」——這個觀念一天會被問五次，準備好一句話版本。</div>
+
+<h3>卡點 3：訂閱 <code>/scan</code> 但 callback 從來沒被呼叫（最高頻、最難自己發現）</h3>
+<p><strong>症狀：</strong>程式不報錯、不當掉，就是安安靜靜什麼都沒發生。學生會以為是自己 <code>spin()</code> 寫錯。</p>
+<p><strong>診斷 SOP：</strong></p>
+<pre><code>ros2 topic echo /scan               # 有資料 → 排除「感測器沒發」
+ros2 node info /你的節點名           # 確認 subscription 真的建立了
+ros2 topic info /scan --verbose     # ★ 對照兩邊的 Reliability</code></pre>
+<p><strong>看到這樣就是中獎：</strong></p>
+<pre><code>Publisher: ... Reliability: BEST_EFFORT
+Subscription: ... Reliability: RELIABLE      ← 談不攏，連線不成立</code></pre>
+<p><strong>解法：</strong>訂閱端改用 <code>qos_profile_sensor_data</code>。順便教學生記口訣：<strong>「感測器資料一律 sensor_data QoS，指令與狀態才用預設 reliable。」</strong></p>
+
+<h3>卡點 4：<code>Lookup would require extrapolation into the past/future</code> 或 RViz 一直閃紅字</h3>
+<p><strong>錯誤訊息全文範例：</strong><code>[tf2_ros] Lookup would require extrapolation into the past. Requested time 1799.3 but the earliest data is at time 1802.1, when looking up transform from frame [base_scan] to frame [odom]</code></p>
+<p><strong>診斷順序（照這個順序問，不要跳）：</strong></p>
+<pre><code># 1. 這個節點有沒有開 sim time？（八成的答案在這裡）
+ros2 param get /你的節點 use_sim_time
+ros2 param get /rviz2 use_sim_time
+
+# 2. /clock 有在發嗎？
+ros2 topic hz /clock
+
+# 3. tf 到底有沒有斷層？
+ros2 run tf2_ros tf2_echo odom base_scan
+ros2 run tf2_tools view_frames && xdg-open frames.pdf</code></pre>
+<p><strong>解法：</strong>所有節點（含 rviz2）加 <code>--ros-args -p use_sim_time:=true</code>。若是自己寫的 launch 檔，記得每個 Node 都要帶 <code>parameters=[{'use_sim_time': True}]</code>——漏掉其中一個就會出現這個錯。</p>
+
+<h3>卡點 5：Ctrl+C 之後重開 Gazebo 就壞掉 / port 被佔 / 機器人自己還在動</h3>
+<p><strong>錯誤訊息：</strong><code>[Err] [Master.cc:96] EXCEPTION: Unable to start server[bind: Address already in use]</code></p>
+<p><strong>根因：</strong><code>gzserver</code> 是背景行程，Ctrl+C 常常只殺掉 launch，server 還活著佔用 11345 port。</p>
+<pre><code># 標準清場三連（叫學生設成 alias，一天要用十次）
+pkill -9 gzserver ; pkill -9 gzclient ; pkill -9 rviz2
+sleep 2
+ros2 daemon stop && ros2 daemon start     # ROS 2 的 discovery 快取也清一下</code></pre>
+<p>另外提醒：<strong>teleop 或 <code>topic pub -r</code> 關掉後，plugin 記得的是最後一筆非零指令，車子會繼續跑。</strong>教學生養成習慣：結束前一定補一筆全 0 的 <code>/cmd_vel</code>。這在模擬只是煩，在實機是安全事故。</p>
+
+<div class="warn"><strong>額外一則，明天會用到：</strong>如果學生問「為什麼 RViz 裡機器人是白色/沒有材質」，那是 URDF 的 <code>&lt;material&gt;</code> 在 Gazebo 與 RViz 使用不同的定義方式（RViz 讀 URDF material，Gazebo 讀 <code>&lt;gazebo&gt;&lt;material&gt;Gazebo/DarkGrey&lt;/material&gt;</code>）。純外觀問題，不影響功能，可以先放著。</div>
+
+<hr>
+
+<h2>📮 回報格式</h2>
+<p>今天結束後，請回覆以下四項（越具體越好，我明天會根據你的回報調整 Day 9）：</p>
+<ol>
+<li><strong>完成了什麼</strong>——驗收清單五項各自過了沒。</li>
+<li><strong>卡在哪</strong>——請貼<strong>完整的錯誤訊息</strong>（不要只寫「跑不起來」），連同你當時下的指令一起貼。</li>
+<li><strong>沒懂的概念</strong>——今天九個知識點裡，哪一個你覺得「字都看懂了但講不出來」。</li>
+<li><strong>實際花的時間</strong>——上午 / 下午 / 晚上各花多久。</li>
+</ol>
+
+<footer>
+<a href="index.html">← 回索引</a> · Physical AI 助教特訓 Day 8 / 30 · 明天：SLAM 原理與 slam_toolbox 建圖
+</footer>
+
+</div></body>
+</html>
