@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Day 5｜tf2 座標轉換：map/odom/base_link 三層、齊次矩陣、quaternion、tf 三大死法</title>
+<style>
+:root{color-scheme:light}
+*{box-sizing:border-box}
+body{margin:0;background:#fbfbf9;color:#2c2a26;
+font-family:-apple-system,"Segoe UI","PingFang TC","Microsoft JhengHei",sans-serif;
+line-height:1.8;font-size:16px}
+.wrap{max-width:900px;margin:0 auto;padding:44px 22px 90px}
+h1{font-family:Georgia,"Noto Serif TC",serif;font-size:30px;margin:0 0 8px;font-weight:700;line-height:1.35}
+.meta{color:#6b6a63;font-size:14px;margin:0 0 28px}
+h2{font-size:21px;margin:44px 0 12px;padding-bottom:8px;border-bottom:2px solid #e4e3dc}
+h3{font-size:17px;margin:28px 0 8px;color:#1f4f6b}
+h4{font-size:15px;margin:18px 0 6px;color:#5a5852}
+p{margin:10px 0}
+ul,ol{margin:10px 0;padding-left:24px}
+li{margin:6px 0}
+code{background:#f0efe9;padding:1px 5px;border-radius:3px;font-size:14px;
+font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace}
+pre{background:#1e1f26;color:#e6e6e6;padding:16px 18px;border-radius:8px;overflow-x:auto;
+font-size:13.5px;line-height:1.6;margin:12px 0}
+pre code{background:none;color:inherit;padding:0;font-size:13.5px}
+.goal{background:#eef5ef;border-left:4px solid #4a8a5c;padding:14px 18px;border-radius:0 6px 6px 0;margin:16px 0}
+.box{background:#fff;border:1px solid #e4e3dc;border-radius:8px;padding:16px 20px;margin:16px 0}
+.warn{background:#fdf3e7;border-left:4px solid #d08b2c;padding:12px 18px;border-radius:0 6px 6px 0;margin:14px 0}
+.mis{background:#fbeeee;border-left:4px solid #b95555;padding:12px 18px;border-radius:0 6px 6px 0;margin:14px 0;font-size:15px}
+.mis strong{color:#9c3b3b}
+.math{background:#f4f6f8;border:1px solid #dfe4e8;border-radius:6px;padding:14px 18px;margin:14px 0;
+font-family:"SFMono-Regular",Consolas,monospace;font-size:14px;overflow-x:auto;line-height:1.75}
+table{border-collapse:collapse;width:100%;margin:14px 0;font-size:14.5px}
+th,td{border:1px solid #e4e3dc;padding:8px 10px;text-align:left;vertical-align:top}
+th{background:#f4f3ee}
+.sched{font-size:15px}
+.sched b{color:#1f4f6b}
+.check li{list-style:none;margin:10px 0}
+.check{padding-left:2px}
+.check input{margin-right:10px;transform:scale(1.2)}
+footer{margin-top:56px;padding-top:18px;border-top:1px solid #e4e3dc;font-size:14px;color:#6b6a63}
+footer a{color:#1f4f6b}
+.tag{display:inline-block;background:#1f4f6b;color:#fff;font-size:12px;padding:2px 9px;border-radius:11px;margin-right:8px;vertical-align:2px}
+.tag.hot{background:#a83b3b}
+@media(max-width:640px){.wrap{padding:30px 15px 70px}h1{font-size:24px}pre{font-size:12.5px}.math{font-size:12.5px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Day 5｜tf2 座標轉換：map / odom / base_link 三層、齊次矩陣、quaternion、tf 三大死法</h1>
+<p class="meta"><span class="tag">Week 1 · 核心</span><span class="tag hot">高難度</span>2026-08-09（星期日）· Physical AI 助教特訓 Day 5 / 30</p>
+
+<div class="goal">
+<b>今日目標</b>：今天結束時，你要能看著一個 tf 錯誤訊息，<b>在三十秒內說出是哪一類問題、下一步要打哪個指令</b>；並且能對學生用兩分鐘白話講清楚「為什麼機器人需要三層座標系」。
+</div>
+
+<div class="warn"><b>心理準備</b>：tf2 是第一週最抽象的一天，也是學生放棄率最高的一天。它抽象的原因不是數學難，而是<b>它同時混合了三件事</b>：幾何（矩陣）、時間（資料是有時間戳的）、以及系統設計（誰該發佈什麼）。今天請你把這三件事分開理解。</div>
+
+<h2>1. 為什麼需要座標轉換：從一個真實情境說起</h2>
+<p>你的機器人前面裝了一顆雷射雷達。雷達回報：「正前方 1.2 公尺有東西。」</p>
+<p>問題來了：</p>
+<ul>
+<li>雷達裝在車體<b>前方 20 公分、高 15 公分</b>的地方 → 對車體中心來說，那個東西在前方 1.4 公尺</li>
+<li>車體現在<b>朝東北方 45 度、位於地圖上的 (3.0, 2.0)</b> → 對地圖來說，那個東西在 (3.99, 2.99)</li>
+<li>你的手臂要去抓它，手臂基座又裝在車體<b>後方 10 公分</b>…</li>
+</ul>
+<p>如果每個節點都要自己記住這些偏移量，系統會立刻崩潰：改個安裝位置就要改十個檔案。</p>
+<p><b>tf2 解決的就是這件事</b>：它是一個<b>集中式、帶時間戳的座標關係資料庫</b>。每個節點只負責發佈「我知道的那一段關係」，需要換算時就問 tf2：「請告訴我 A 到 B 的轉換。」</p>
+<p><b>比喻</b>：tf2 像<b>一間公司的組織圖 + 每個人的座位表，而且還有歷史版本</b>。你問「三分鐘前，工程師小王相對於大門在哪」，它會沿著組織圖一路查上去，把每一段的相對位置乘起來給你。</p>
+
+<h2>2. 時段安排（總計約 5.5 小時）</h2>
+<div class="box sched">
+<p><b>上午（約 2 小時）· 觀念與數學</b><br>
+齊次變換矩陣、旋轉表示法、quaternion。紙筆算一次 2D 的例子。</p>
+<p><b>下午（約 2.5 小時）· 實作</b><br>
+static broadcaster、dynamic broadcaster、listener，rviz 看 tf 樹，用 tf2_echo 驗算。</p>
+<p><b>晚上（約 1 小時）· 三大死法</b><br>
+故意製造三種經典錯誤，記錄訊息與診斷 SOP。</p>
+</div>
+
+<h2>3. 知識點：座標系與剛體變換</h2>
+
+<h3>3-1　ROS 的座標慣例（REP 103 / REP 105）</h3>
+<p>先背這兩條，之後每天都用：</p>
+<div class="box">
+<p><b>機器人本體</b>（右手座標系）：<b>x 向前、y 向左、z 向上</b>。旋轉用 roll（繞 x）、pitch（繞 y）、yaw（繞 z），逆時針為正。</p>
+<p><b>相機／光學</b>（optical frame）：<b>z 向前、x 向右、y 向下</b>。</p>
+</div>
+<div class="mis"><strong>頭號地雷</strong>：相機有<b>兩套 frame</b>——<code>camera_link</code>（機器人慣例）與 <code>camera_depth_optical_frame</code>（光學慣例），兩者差一個 90 度的旋轉組合。Day 18 做視覺抓取時，學生「點雲整個倒過來 / 躺著」的問題，九成是把這兩個 frame 用錯。<b>今天先把這個名字記在腦子裡。</b></div>
+
+<h3>3-2　齊次變換矩陣：把旋轉和平移塞進同一個矩陣</h3>
+<p><b>它解決什麼問題</b>：一個剛體變換 = 先轉一下、再移一下。分開寫是 <code>p' = R·p + t</code>，兩個運算。連續做五次變換時，公式會變得很醜、也不好用矩陣連乘化簡。</p>
+<p><b>做法</b>：把三維點多加一個「1」變成四維，就能把旋轉與平移合併成一個 4×4 矩陣的乘法。</p>
+
+<div class="math">
+      ┌                    ┐
+      │  r11  r12  r13  tx │
+  T = │  r21  r22  r23  ty │      ┌ R  t ┐
+      │  r31  r32  r33  tz │  =   │ 0  1 │
+      │   0    0    0    1 │      └      ┘
+      └                    ┘
+</div>
+
+<p><b>每個符號的物理意義</b>：</p>
+<table>
+<tr><th>符號</th><th>是什麼</th><th>物理意義</th></tr>
+<tr><td><code>R</code>（左上 3×3）</td><td>旋轉矩陣</td><td>子座標系的三根軸（x, y, z）在父座標系裡指向哪個方向。<b>R 的第一行就是子座標系 x 軸在父座標系中的單位向量</b></td></tr>
+<tr><td><code>t</code>（右上 3×1）</td><td>平移向量</td><td>子座標系的<b>原點</b>在父座標系裡的位置，單位公尺</td></tr>
+<tr><td>底下那列 <code>0 0 0 1</code></td><td>補齊用</td><td>純粹是為了讓矩陣能相乘、能求逆，沒有物理意義</td></tr>
+</table>
+
+<p><b>怎麼用</b>：</p>
+<div class="math">
+一個點在子座標系（例如 laser_link）的座標是  p_child = [x, y, z, 1]ᵀ
+換算到父座標系（例如 base_link）：
+
+    p_parent = T_parent←child · p_child
+
+多段串接（laser → base → odom → map）：
+
+    T_map←laser = T_map←odom · T_odom←base · T_base←laser
+
+反過來（父換到子）就取逆矩陣：
+
+    T_child←parent = (T_parent←child)⁻¹
+</div>
+<p><b>記憶訣竅</b>：把 <code>←</code> 想成「箭頭指向誰，結果就是誰的座標系」。相鄰的兩個下標會消掉，就像單位換算：<code>(m/cm)·(cm/mm) = m/mm</code>。<b>如果下標消不掉，你就是乘反了</b>——這是檢查自己有沒有搞錯方向最快的方法。</p>
+
+<div class="mis"><strong>常見誤解</strong>：「T_A←B 是把 A 移到 B 的意思」。不是。<b>T_A←B 是把「B 座標系裡的座標」轉換成「A 座標系裡的座標」</b>，同時它也等於「B 座標系本身相對於 A 的位姿」。這兩種讀法是同一件事，但學生常常只記住其中一種就開始亂乘。<b>助教請一律用「下標消去法」教，不要用語言記憶。</b></div>
+
+<h3>3-3　旋轉的三種表示法，以及為什麼 ROS 用 quaternion</h3>
+<table>
+<tr><th>表示法</th><th>幾個數字</th><th>優點</th><th>致命缺點</th></tr>
+<tr><td>歐拉角 (roll, pitch, yaw)</td><td>3</td><td>人看得懂</td><td><b>萬向鎖</b>；順序不唯一（xyz? zyx?）；不好插值</td></tr>
+<tr><td>旋轉矩陣</td><td>9</td><td>直接能算</td><td>冗餘；數值誤差累積後不再正交</td></tr>
+<tr><td><b>四元數 quaternion</b></td><td>4</td><td>無萬向鎖、好插值、數值穩定</td><td>人看不懂</td></tr>
+</table>
+
+<p><b>萬向鎖是什麼</b>（一定要能白話講）：用歐拉角時，當 pitch 轉到 ±90 度，roll 與 yaw 的旋轉軸會重疊，等於<b>三個自由度掉成兩個</b>，你再怎麼調也轉不到某些姿態。<br>
+<b>比喻</b>：像相機三腳架的雲台，當你把鏡頭完全朝正上方時，左右轉盤和底座旋轉會變成同一個動作——你失去了一個方向。</p>
+
+<p><b>四元數的四個數字</b>：<code>q = (x, y, z, w)</code>（注意 ROS 的順序是 x, y, z, w，很多數學教科書寫 w, x, y, z，<b>複製別人程式碼時要看清楚</b>）</p>
+<div class="math">
+繞單位向量 (ux, uy, uz) 轉 θ 角：
+
+    x = ux · sin(θ/2)
+    y = uy · sin(θ/2)
+    z = uz · sin(θ/2)
+    w =      cos(θ/2)
+
+約束：x² + y² + z² + w² = 1  （必須是單位四元數）
+</div>
+<ul>
+<li><code>(ux, uy, uz)</code>：<b>旋轉軸</b>的方向（單位向量）</li>
+<li><code>θ</code>：繞這根軸轉的<b>角度</b>（弧度）</li>
+<li><code>w</code>：可以理解成「轉了多少的量」——<b>w = 1 代表完全沒轉</b>（θ=0），w = 0 代表轉了 180 度</li>
+<li>那個 <b>θ/2</b> 是四元數的數學結構決定的（它在「一半角度」的空間裡運作），不用深究，但要知道<b>它的存在</b>，否則你會算錯</li>
+</ul>
+
+<p><b>最常用的特例：只繞 z 軸轉 yaw</b>（地面移動機器人幾乎只用得到這個）</p>
+<div class="math">
+    x = 0
+    y = 0
+    z = sin(yaw / 2)
+    w = cos(yaw / 2)
+</div>
+
+<div class="mis"><strong>常見誤解</strong>：「orientation 不填就是不旋轉」。<b>錯</b>。不填是 (0,0,0,0)，模長為 0，是<b>非法四元數</b>，rviz 會警告 <code>Uninitialized quaternion, assuming identity</code>，有些函式會直接算出垃圾。<b>不旋轉要寫 <code>w = 1.0</code>。</b> 這是初學者最常犯、也最容易忽略的錯。</div>
+
+<h3>3-4　紙筆練習（請真的動手算，10 分鐘）</h3>
+<div class="box">
+<p>雷達裝在車體前方 0.2 m、高 0.15 m，無旋轉。車體位於 odom 的 (3.0, 2.0)，朝向 yaw = 45°。<br>
+雷達在自己的座標系裡看到一個點 (1.2, 0.0, 0.0)。</p>
+<p><b>問：這個點在 odom 座標系的位置？</b></p>
+<p><b>解</b>：<br>
+① 先轉到 base_link：<code>(1.2 + 0.2, 0 + 0, 0 + 0.15) = (1.4, 0, 0.15)</code><br>
+② 再轉到 odom（旋轉 45° 再平移）：<br>
+　<code>x = 3.0 + 1.4·cos45° − 0·sin45° = 3.0 + 0.99 = 3.99</code><br>
+　<code>y = 2.0 + 1.4·sin45° + 0·cos45° = 2.0 + 0.99 = 2.99</code><br>
+　<code>z = 0 + 0.15 = 0.15</code><br>
+<b>答：(3.99, 2.99, 0.15)</b></p>
+<p>等一下用 <code>tf2_echo</code> 驗算這個答案——親手算過一次，你才會真的相信 tf2 在做什麼。</p>
+</div>
+
+<h2>4. 知識點：map / odom / base_link 三層架構（REP 105）</h2>
+
+<h3>4-1　為什麼要三層，不能只用一層</h3>
+<p>這是整個 ROS 導航的核心設計，<b>Day 10 的 Nav2 完全建立在這個結構上</b>。</p>
+
+<pre><code>map
+ │  ← 由定位演算法發佈（AMCL / slam_toolbox），會「跳」
+ │     修正累積誤差，低頻（1~10 Hz）
+odom
+ │  ← 由里程計發佈（輪速編碼器 / IMU 融合），平滑但會「飄」
+ │     高頻（20~100 Hz）
+base_link
+ │  ← 由 URDF + robot_state_publisher 發佈，固定不動
+ ├── laser_link
+ ├── camera_link
+ └── imu_link</code></pre>
+
+<table>
+<tr><th>frame</th><th>意義</th><th>性質</th><th>誰發佈</th></tr>
+<tr><td><code>map</code></td><td>世界座標，固定不動</td><td><b>不連續</b>（會跳）、長期無漂移</td><td>AMCL / SLAM</td></tr>
+<tr><td><code>odom</code></td><td>開機時的起點</td><td><b>連續平滑</b>、長期會漂</td><td>里程計 / EKF</td></tr>
+<tr><td><code>base_link</code></td><td>機器人本體中心</td><td>—</td><td>—</td></tr>
+<tr><td>各感測器 frame</td><td>感測器安裝位置</td><td>相對本體固定</td><td>robot_state_publisher</td></tr>
+</table>
+
+<h3>4-2　關鍵的一句話：為什麼不是 map → base_link 直接一條</h3>
+<p>因為<b>兩種需求互相衝突</b>：</p>
+<ul>
+<li>局部控制（避障、走直線）需要<b>連續平滑</b>的位置——位置突然跳一下，控制器會瘋掉</li>
+<li>長期導航需要<b>沒有累積誤差</b>的位置——輪子打滑一小時後，里程計可能差了好幾公尺</li>
+</ul>
+<p>魚與熊掌不可兼得，所以 ROS 的解法是<b>拆成兩段</b>：<code>odom → base_link</code> 給你平滑，<code>map → odom</code> 這段由定位演算法即時修正、承擔所有的「跳」。</p>
+<p><b>比喻</b>：<code>odom → base_link</code> 是你自己「閉著眼睛數步伐」推算的位置——很平順，但走久了一定偏。<code>map → odom</code> 是你偶爾睜開眼睛看路標後，<b>對自己整套推算的修正量</b>。你不會因為睜眼修正就讓自己的腳步變得不連續，你是修正「我以為的起點在哪」。</p>
+<div class="mis"><strong>常見誤解</strong>：「AMCL 發佈機器人在地圖上的位置」。嚴格說不是——<b>AMCL 發佈的是 <code>map → odom</code> 這段修正量</b>。機器人在地圖上的位置是 <code>map→odom</code> 再串上 <code>odom→base_link</code> 算出來的。這個區別在 Day 11 除錯時非常重要。</div>
+
+<h3>4-3　tf 的鐵律：一個 child 只能有一個 parent</h3>
+<div class="warn">
+tf 是一棵<b>樹</b>，不是圖。<br>
+① 每個 frame 只能有<b>一個</b> parent<br>
+② 同一段轉換只能有<b>一個</b>發佈者<br>
+③ 樹必須<b>連通</b>，否則查詢會失敗<br><br>
+違反 ① 或 ② 會出現 <code>TF_REPEATED_DATA</code> 或 tf 樹閃爍（兩個發佈者互相覆蓋），這種錯誤<b>不會讓程式崩潰，只會讓機器人行為詭異</b>，是最難抓的一類。
+</div>
+
+<h2>5. 下午實作</h2>
+
+<h3>5-1　先用純指令建一棵最小的樹</h3>
+<pre><code># 終端機 A：base_link → laser_link（固定安裝位置）
+ros2 run tf2_ros static_transform_publisher \
+  --x 0.2 --y 0.0 --z 0.15 \
+  --yaw 0.0 --pitch 0.0 --roll 0.0 \
+  --frame-id base_link --child-frame-id laser_link
+
+# 終端機 B：odom → base_link（先用固定的，模擬車在 (3,2) 朝 45 度）
+ros2 run tf2_ros static_transform_publisher \
+  --x 3.0 --y 2.0 --z 0.0 \
+  --yaw 0.7853981634 --pitch 0.0 --roll 0.0 \
+  --frame-id odom --child-frame-id base_link
+
+# 終端機 C：驗算你紙筆的答案
+ros2 run tf2_ros tf2_echo odom laser_link</code></pre>
+<p>輸出的 Translation 應該是 <code>[3.141, 2.141, 0.150]</code>——這是雷達<b>原點</b>的位置。要驗算剛剛那個「1.2 公尺外的點」，用下面的 Python listener。</p>
+
+<h3>5-2　動態 broadcaster：<code>odom_publisher.py</code></h3>
+<pre><code>#!/usr/bin/env python3
+"""假里程計：讓 base_link 在 odom 座標系裡繞圈，並正確填 quaternion。"""
+import math
+
+import rclpy
+from rclpy.node import Node
+from geometry_msgs.msg import TransformStamped
+from tf2_ros import TransformBroadcaster
+
+
+class OdomPublisher(Node):
+    def __init__(self):
+        super().__init__('odom_publisher')
+        self.declare_parameter('radius', 1.0)
+        self.declare_parameter('omega', 0.4)       # rad/s
+        self.declare_parameter('rate', 30.0)       # Hz，tf 建議 20 Hz 以上
+
+        self.r = float(self.get_parameter('radius').value)
+        self.w = float(self.get_parameter('omega').value)
+        rate = float(self.get_parameter('rate').value)
+
+        self.br = TransformBroadcaster(self)       # 動態用 TransformBroadcaster
+        self.t = 0.0
+        self.dt = 1.0 / rate
+        self.create_timer(self.dt, self.tick)
+        self.get_logger().info(f'odom_publisher 啟動 @ {rate} Hz')
+
+    def tick(self):
+        self.t += self.dt
+        yaw = self.w * self.t
+
+        tf = TransformStamped()
+        # ---- 三個一定要填對的欄位 ----
+        tf.header.stamp = self.get_clock().now().to_msg()   # 時間戳
+        tf.header.frame_id = 'odom'                          # parent
+        tf.child_frame_id = 'base_link'                      # child
+
+        tf.transform.translation.x = self.r * math.cos(yaw)
+        tf.transform.translation.y = self.r * math.sin(yaw)
+        tf.transform.translation.z = 0.0
+
+        # 只繞 z 軸轉 yaw：x=y=0，z=sin(yaw/2)，w=cos(yaw/2)
+        tf.transform.rotation.x = 0.0
+        tf.transform.rotation.y = 0.0
+        tf.transform.rotation.z = math.sin(yaw / 2.0)
+        tf.transform.rotation.w = math.cos(yaw / 2.0)
+
+        self.br.sendTransform(tf)
+
+
+def main():
+    rclpy.init()
+    node = OdomPublisher()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        rclpy.try_shutdown()
+
+
+if __name__ == '__main__':
+    main()</code></pre>
+
+<h3>5-3　靜態 broadcaster：<code>sensor_tf.py</code></h3>
+<pre><code>#!/usr/bin/env python3
+"""靜態轉換：感測器安裝位置。用 StaticTransformBroadcaster，只需發一次。"""
+import rclpy
+from rclpy.node import Node
+from geometry_msgs.msg import TransformStamped
+from tf2_ros import StaticTransformBroadcaster
+
+
+class SensorTF(Node):
+    def __init__(self):
+        super().__init__('sensor_tf')
+        # 靜態專用：內部用 TRANSIENT_LOCAL QoS，之後才連上的節點也收得到
+        self.br = StaticTransformBroadcaster(self)
+
+        tf = TransformStamped()
+        tf.header.stamp = self.get_clock().now().to_msg()
+        tf.header.frame_id = 'base_link'
+        tf.child_frame_id = 'laser_link'
+        tf.transform.translation.x = 0.2
+        tf.transform.translation.y = 0.0
+        tf.transform.translation.z = 0.15
+        tf.transform.rotation.w = 1.0      # 不旋轉，w 一定要是 1
+
+        self.br.sendTransform(tf)          # 只送一次就好
+        self.get_logger().info('static tf base_link -&gt; laser_link 已發佈')
+
+
+def main():
+    rclpy.init()
+    node = SensorTF()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        rclpy.try_shutdown()
+
+
+if __name__ == '__main__':
+    main()</code></pre>
+
+<div class="warn"><b>static 與 dynamic 的差別，一定要講清楚</b>：<br>
+靜態轉換發到 <code>/tf_static</code>，用 <b>TRANSIENT_LOCAL</b> QoS（有「歷史保留」，晚加入的訂閱者也能收到最後一筆），所以<b>只要發一次</b>。<br>
+動態轉換發到 <code>/tf</code>，是一般的 volatile QoS，<b>必須持續發</b>，停了就過期。<br>
+學生若用 <code>TransformBroadcaster</code> 只發一次靜態轉換 → 一開始有、幾秒後全部 extrapolation error。</div>
+
+<h3>5-4　Listener：把點從一個 frame 換到另一個</h3>
+<pre><code>#!/usr/bin/env python3
+"""查詢 tf 並轉換一個點：驗算上午紙筆的答案。"""
+import rclpy
+from rclpy.node import Node
+from rclpy.duration import Duration
+
+from geometry_msgs.msg import PointStamped
+import tf2_ros
+# 這行 import 看起來沒用到，但「必須」有：
+# 它會註冊 PointStamped 的轉換函式，否則 do_transform_point 找不到型別
+from tf2_geometry_msgs import do_transform_point
+
+
+class PointTransformer(Node):
+    def __init__(self):
+        super().__init__('point_transformer')
+
+        # Buffer 是那個「資料庫」，Listener 負責訂閱 /tf 與 /tf_static 塞進去
+        self.buffer = tf2_ros.Buffer(cache_time=Duration(seconds=10.0))
+        self.listener = tf2_ros.TransformListener(self.buffer, self)
+
+        self.create_timer(1.0, self.tick)
+
+    def tick(self):
+        # 雷達看到正前方 1.2 公尺有東西
+        p = PointStamped()
+        p.header.frame_id = 'laser_link'
+        p.header.stamp = self.get_clock().now().to_msg()
+        p.point.x = 1.2
+        p.point.y = 0.0
+        p.point.z = 0.0
+
+        try:
+            # 方法一：先拿轉換再套用（看得到中間過程，適合教學）
+            tr = self.buffer.lookup_transform(
+                'odom',                     # target：我要換到哪個 frame
+                'laser_link',               # source：資料現在在哪個 frame
+                rclpy.time.Time(),          # Time() = 「最新可用的」，最安全
+                timeout=Duration(seconds=0.5))
+            out = do_transform_point(p, tr)
+
+            self.get_logger().info(
+                f'laser(1.2,0,0) -&gt; odom '
+                f'({out.point.x:.3f}, {out.point.y:.3f}, {out.point.z:.3f})')
+
+        except tf2_ros.LookupException as e:
+            self.get_logger().warn(f'找不到 frame（樹不連通）：{e}')
+        except tf2_ros.ExtrapolationException as e:
+            self.get_logger().warn(f'時間對不上（外推錯誤）：{e}')
+        except tf2_ros.ConnectivityException as e:
+            self.get_logger().warn(f'兩個 frame 不在同一棵樹：{e}')
+        except tf2_ros.TransformException as e:
+            self.get_logger().warn(f'其他 tf 錯誤：{e}')
+
+
+def main():
+    rclpy.init()
+    node = PointTransformer()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        rclpy.try_shutdown()
+
+
+if __name__ == '__main__':
+    main()</code></pre>
+
+<div class="warn"><b>兩個一定要教學生的細節</b>：<br>
+① <code>from tf2_geometry_msgs import ...</code> 這行看起來多餘，但沒有它會噴 <code>TypeError: Invalid type for do_transform_point</code>——因為型別轉換函式是靠 import 副作用註冊的。<br>
+② <code>lookup_transform</code> 的時間參數用 <code>rclpy.time.Time()</code>（代表「最新可用」）最安全；用 <code>msg.header.stamp</code> 比較嚴謹但容易外推失敗。<b>教學時先用前者讓學生跑起來，再解釋後者為什麼比較正確。</b></div>
+
+<h3>5-5　串起來看</h3>
+<pre><code># 三個節點跑起來後：
+ros2 run tf2_tools view_frames        # 產生 frames.pdf 與 frames.gv
+evince frames.pdf                     # 或直接開檔案總管點開
+
+ros2 run tf2_ros tf2_echo odom laser_link
+ros2 topic hz /tf                     # 動態轉換的頻率，應該接近 30
+ros2 topic echo /tf_static --once     # 靜態轉換只有一筆
+
+# rviz2：Fixed Frame 設 odom，Add → TF，勾 Show Names / Show Axes
+rviz2</code></pre>
+
+<h2>6. 晚上：tf 三大死法（每一個都要親手製造一次）</h2>
+
+<h3>死法一：時間對不上（Extrapolation）</h3>
+<div class="box">
+<p><b>錯誤訊息</b>：<br>
+<code>Lookup would require extrapolation into the future. Requested time 1754812345.678 but the latest data is at time 1754812345.612, when looking up transform from frame [laser_link] to frame [odom]</code><br>
+或 <code>...extrapolation into the past...</code></p>
+<p><b>白話</b>：你問「這一刻的轉換」，但 tf 手上最新的資料比你問的時間<b>還舊</b>（或太舊）。tf2 <b>拒絕外推</b>——它寧可報錯，也不猜。</p>
+<p><b>怎麼製造</b>：把 <code>odom_publisher</code> 的 rate 從 30 改成 1，然後在 listener 用 <code>msg.header.stamp</code> 查詢。</p>
+<p><b>診斷</b>：<code>ros2 topic hz /tf</code>（頻率太低？）、<code>ros2 param get /節點 use_sim_time</code>（時間來源不一致？）</p>
+<p><b>四種解法，依情況選</b>：<br>
+① 查詢時用 <code>rclpy.time.Time()</code> 拿最新的（最快，但語意上不嚴謹）<br>
+② <code>lookup_transform(..., timeout=Duration(seconds=0.1))</code> 讓它等一下<br>
+③ 提高 broadcaster 頻率（tf 建議 ≥ 20 Hz）<br>
+④ 用 <code>Buffer(cache_time=Duration(seconds=10))</code> 加大快取（處理「過去太久」的情況）</p>
+</div>
+
+<h3>死法二：樹不連通 / 多重 parent</h3>
+<div class="box">
+<p><b>錯誤訊息 A</b>：<code>"laser_link" passed to lookupTransform argument source_frame does not exist</code><br>
+→ 根本沒有人發佈過這個 frame。可能是拼字錯（<code>laser_link</code> vs <code>lazer_link</code>），或 broadcaster 沒啟動。</p>
+<p><b>錯誤訊息 B</b>：<code>Could not find a connection between 'map' and 'laser_link' because they are not part of the same tree. Tf has two or more unconnected trees.</code><br>
+→ 中間斷了一段。最常見是忘了發 <code>map → odom</code>（還沒跑 AMCL/SLAM）。</p>
+<p><b>錯誤訊息 C</b>：<code>TF_REPEATED_DATA ignoring data with redundant timestamp</code> 或 rviz 裡座標軸瘋狂閃爍<br>
+→ 同一段有<b>兩個發佈者</b>在搶。典型情境：你自己寫了一個 static publisher，URDF 的 robot_state_publisher 也在發同一段。</p>
+<p><b>萬用診斷</b>：<code>ros2 run tf2_tools view_frames</code> → 打開 frames.pdf，斷在哪一眼就看到。這是<b>整個 ROS 最值得學生記住的一個指令</b>。</p>
+</div>
+
+<h3>死法三：時間來源不一致（use_sim_time）</h3>
+<div class="box">
+<p><b>錯誤訊息</b>：<code>TF_OLD_DATA ignoring data from the past</code>，或時間戳在 1970 年附近，或所有查詢都 extrapolation。</p>
+<p><b>原因</b>：跑模擬（Gazebo / Isaac Sim）時，時間來自 <code>/clock</code> 這個 topic，而不是系統時鐘。只要有<b>任何一個</b>節點沒設 <code>use_sim_time:=true</code>，它就用系統時間，兩邊差了幾十年。</p>
+<p><b>診斷</b>：
+<pre><code>ros2 param get /節點名 use_sim_time      # 逐一檢查，一個都不能漏
+ros2 topic echo /clock --once           # 模擬時間有在跑嗎
+ros2 topic echo /tf --once              # 看 stamp 的秒數，是不是接近 0</code></pre>
+<b>解法</b>：launch 檔裡用 <code>/**: ros__parameters: use_sim_time: true</code> 一次套用到所有節點，別一個一個設。</p>
+<p><b>Day 8 開始跑 Gazebo，這個坑一定會遇到，今天先認識它。</b></p>
+</div>
+
+<h3>診斷 SOP（把這段抄進你的助教手冊）</h3>
+<div class="goal">
+<b>學生說「tf 有問題」時，照這個順序問：</b>
+<ol style="margin-bottom:0">
+<li><code>ros2 run tf2_tools view_frames</code> → 樹長什麼樣？<b>連通嗎？</b></li>
+<li><code>ros2 topic hz /tf</code> → 有在發嗎？頻率夠嗎（≥20 Hz）？</li>
+<li><code>ros2 topic echo /tf_static --once</code> → 靜態的那段在不在？</li>
+<li><code>ros2 run tf2_ros tf2_echo A B</code> → 具體哪兩個 frame 之間出問題？</li>
+<li><code>ros2 param get /節點 use_sim_time</code> → 全部節點一致嗎？</li>
+<li>rviz2 加 TF 顯示 → 座標軸有沒有在閃（多重發佈者）？方向對嗎？</li>
+</ol>
+</div>
+
+<h2>7. 今日指定資源</h2>
+<ol>
+<li><b>ROS2 Humble 官方文件</b>《Tutorials → Intermediate → Tf2》整個系列，特別是 <i>Introduction to tf2</i>、<i>Writing a tf2 static broadcaster (Python)</i>、<i>Writing a tf2 broadcaster</i>、<i>Writing a tf2 listener</i> 四節——今天下午的程式碼就是這四節的整合版。</li>
+<li><b>REP 105</b>《Coordinate Frames for Mobile Platforms》——只有兩頁，但它是 map/odom/base_link 的<b>原始規範</b>。請完整讀一次，之後 Nav2 出問題時你會一直回來查它。搭配 <b>REP 103</b>（單位與座標慣例）一起看。</li>
+<li><b>Articulated Robotics</b>〈<i>How TF works in ROS</i>〉那一集——他用實體機器人與動畫解釋 tf 樹，是我看過最好懂的視覺化說明，助教講解時可以直接借用。</li>
+<li><b>3Blue1Brown</b>〈Quaternions and 3d rotation, explained interactively〉——如果你對四元數還是覺得神祕，看這支。<b>不是必要</b>，但看完你講給學生聽時會有底氣。</li>
+</ol>
+
+<h2>8. ✅ 今日驗收清單</h2>
+<ul class="check">
+<li><input type="checkbox"> <code>view_frames</code> 產生的 frames.pdf 顯示 odom → base_link → laser_link 一棵連通的樹</li>
+<li><input type="checkbox"> Python listener 印出的座標，與你上午<b>紙筆算出來的 (3.99, 2.99, 0.15)</b> 一致</li>
+<li><input type="checkbox"> rviz2 裡（Fixed Frame = odom）看得到三個座標軸，base_link 在繞圈且朝向正確</li>
+<li><input type="checkbox"> 你能不看筆記寫出「繞 z 軸轉 90 度」的四元數，並說明 w 的意義</li>
+<li><input type="checkbox"> 三大死法各親手製造一次，錯誤訊息截圖存檔</li>
+</ul>
+
+<h2>9. 🎓 助教筆記：Day 5 學生最會卡的地方</h2>
+
+<h3>卡點 1：「我看不懂矩陣，是不是學不了機器人」</h3>
+<div class="box">
+<p>這是<b>情緒問題不是技術問題</b>，處理方式不一樣。</p>
+<p><b>話術</b>：「你不需要會手算 4×4 矩陣。你需要會的是：<b>知道方向有沒有搞反</b>、<b>知道 tf 報錯時要查什麼</b>。矩陣乘法 tf2 會幫你做。」<br>
+然後直接教他「下標消去法」——<code>T_map←odom · T_odom←base</code>，中間的 odom 消掉，剩下 <code>T_map←base</code>，對了。這一招不用懂線性代數也能檢查自己有沒有乘反，學生通常聽完就安心了。</p>
+</div>
+
+<h3>卡點 2：<code>do_transform_point</code> 報型別錯誤</h3>
+<div class="box">
+<p><b>錯誤訊息</b>：<code>TypeError: Invalid type for do_transform_point</code> 或 <code>KeyError: &lt;class 'geometry_msgs.msg._point_stamped.PointStamped'&gt;</code></p>
+<p><b>原因</b>：忘了 <code>import tf2_geometry_msgs</code>（或該套件沒裝）。轉換函式是靠 import 的副作用註冊到一張表裡的。</p>
+<p><b>解法</b>：<code>sudo apt install ros-humble-tf2-geometry-msgs</code>，並在檔案頂端 import。<b>提醒學生：這個 import 即使 linter 說「未使用」也不能刪。</b></p>
+</div>
+
+<h3>卡點 3：rviz 顯示 TF 但方向明顯不對（車頭朝側面 / 東西是反的）</h3>
+<div class="box">
+<p><b>三個原因排序</b>：<br>
+① 角度單位用了「度」而不是弧度（<code>static_transform_publisher</code> 的 yaw 吃弧度，90 度要寫 1.5708）<br>
+② quaternion 沒填 <code>w=1.0</code> → 非法四元數<br>
+③ parent / child 寫反了（<code>--frame-id</code> 是 parent，<code>--child-frame-id</code> 是 child，順序寫反整個樹會倒過來）</p>
+<p><b>診斷</b>：<code>ros2 run tf2_ros tf2_echo A B</code> 會直接印出 Euler angle，跟你預期的比對，比在 rviz 裡瞇眼看快得多。</p>
+</div>
+
+<h3>卡點 4：靜態轉換一開始有、後來就消失</h3>
+<div class="box">
+<p><b>原因</b>：用了 <code>TransformBroadcaster</code>（動態）而不是 <code>StaticTransformBroadcaster</code>，而且只送一次。動態轉換發到 <code>/tf</code>，是會過期的。</p>
+<p><b>診斷</b>：<code>ros2 topic echo /tf_static --once</code> —— 如果空的，就是發錯 topic 了。</p>
+<p><b>順帶一提</b>：這也是為什麼晚啟動的 rviz2 仍然收得到靜態轉換——<code>/tf_static</code> 用 TRANSIENT_LOCAL QoS，會把最後一筆留給新訂閱者。這是 Day 2 QoS 概念的第一個實際應用，可以拿來當例子講。</p>
+</div>
+
+<h3>卡點 5：明明有發 tf，rviz 卻說 <code>No transform from [X] to [odom]</code></h3>
+<div class="box">
+<p><b>依序檢查</b>：<br>
+① rviz 的 Fixed Frame 打錯字（預設是 <code>map</code>，但你根本沒有 map）<br>
+② 資料訊息的 <code>header.frame_id</code> 是<b>空字串</b> → <code>ros2 topic echo 你的topic --once</code> 直接看<br>
+③ 訊息的 frame_id 有<b>前導斜線</b>（<code>/laser_link</code>）——ROS2 不接受，必須是 <code>laser_link</code>。這是從 ROS1 移植過來的程式最常見的錯。<br>
+④ rviz 比 broadcaster 早啟動，且是靜態轉換發錯 topic（見卡點 4）</p>
+</div>
+
+<h3>卡點 6：「為什麼要有 odom？直接用 map 不行嗎」</h3>
+<div class="box">
+<p>這是<b>好問題</b>，代表學生在思考。標準回答（背起來）：</p>
+<p>「因為<b>定位會跳，控制不能跳</b>。你的避障控制器如果發現自己突然瞬移了 30 公分，會急打方向盤。所以 ROS 把『平滑但會漂的位置』和『準確但會跳的修正』分成兩段，讓控制器只看平滑的那段（odom→base_link），讓導航看完整的那條。」</p>
+<p>再補一句實務觀察：「你之後在 Nav2 會看到，local costmap 的 global frame 用 <code>odom</code>，global costmap 用 <code>map</code>——就是這個道理的直接體現。」（Day 10 會驗證這件事）</p>
+</div>
+
+<h2>10. 回報格式</h2>
+<div class="goal">
+今天請回覆我四件事：
+<ol style="margin-bottom:0">
+<li><b>完成了什麼</b>（驗收清單五項；紙筆練習的答案有沒有跟程式一致）</li>
+<li><b>卡在哪</b>——貼<b>完整</b>錯誤訊息與你當時打的指令</li>
+<li><b>哪個概念沒懂</b>（齊次矩陣？四元數？三層架構？外推錯誤？）</li>
+<li><b>實際花了多少時間</b>（分上午 / 下午 / 晚上）</li>
+</ol>
+</div>
+<p style="font-size:14.5px;color:#6b6a63">明天 Day 6 是 URDF / Xacro / robot_state_publisher —— 你會發現 <code>base_link → laser_link</code> 這種靜態轉換，其實根本不用手寫，URDF 會自動幫你發。今天手寫一次是為了讓你知道它在做什麼。</p>
+
+<footer><a href="index.html">← 回索引</a>　·　Ubuntu 22.04 · ROS2 Humble · Gazebo Classic 11 · Python 3.10</footer>
+
+</div>
+</body>
+</html>
