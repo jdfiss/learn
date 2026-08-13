@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Day 9｜SLAM 原理與 slam_toolbox 建圖存圖</title>
+<style>
+:root{color-scheme:light}
+*{box-sizing:border-box}
+body{margin:0;background:#fcfcfb;color:#2e2c27;
+font-family:-apple-system,"Segoe UI","PingFang TC","Microsoft JhengHei",sans-serif;
+line-height:1.8;font-size:16px}
+.wrap{max-width:900px;margin:0 auto;padding:44px 22px 90px}
+h1{font-family:Georgia,"Noto Serif TC",serif;font-size:29px;margin:0 0 4px;font-weight:600;line-height:1.35}
+h2{font-size:21px;margin:44px 0 12px;padding-bottom:8px;border-bottom:2px solid #e4e3dc;font-weight:600}
+h3{font-size:17px;margin:30px 0 8px;font-weight:600;color:#1f4a63}
+h4{font-size:15px;margin:18px 0 6px;font-weight:600;color:#5a5850}
+.meta{color:#6b6a63;font-size:14px;margin:0 0 6px}
+.goal{background:#f2f6f4;border-left:4px solid #3d7a5f;padding:14px 18px;margin:22px 0;border-radius:0 6px 6px 0}
+.goal b{color:#2c5c46}
+.box{background:#f8f8f5;border:1px solid #e4e3dc;border-radius:8px;padding:14px 18px;margin:16px 0}
+.warn{background:#fdf6ec;border-left:4px solid #d08a2c;padding:12px 16px;margin:14px 0;border-radius:0 6px 6px 0;font-size:15px}
+.warn b{color:#9c631a}
+.mis{background:#fdf1f1;border-left:4px solid #c05555;padding:12px 16px;margin:14px 0;border-radius:0 6px 6px 0;font-size:15px}
+.mis b{color:#993c3c}
+.ana{background:#f4f2fa;border-left:4px solid #6f5fa8;padding:12px 16px;margin:14px 0;border-radius:0 6px 6px 0;font-size:15px}
+.ana b{color:#54479c}
+pre{background:#1e1f26;color:#e6e6e6;padding:16px 18px;border-radius:8px;overflow-x:auto;
+font-size:13.5px;line-height:1.62;margin:14px 0}
+pre code{font-family:"SF Mono",Consolas,"DejaVu Sans Mono",monospace;white-space:pre}
+.c{color:#8b93a6}
+.k{color:#c792ea}
+.s{color:#c3e88d}
+code{background:#eceae3;padding:1.5px 5px;border-radius:4px;font-size:14px;
+font-family:"SF Mono",Consolas,"DejaVu Sans Mono",monospace}
+table{border-collapse:collapse;width:100%;margin:16px 0;font-size:14.5px}
+th,td{border:1px solid #e0dfd8;padding:8px 11px;text-align:left;vertical-align:top}
+th{background:#f2f1ec;font-weight:600}
+ul,ol{padding-left:24px}
+li{margin:5px 0}
+.formula{background:#f6f6f2;border:1px solid #e4e3dc;padding:12px 16px;margin:12px 0;
+border-radius:6px;font-family:Georgia,serif;font-size:16px;text-align:center}
+.sym{font-size:14.5px}
+.sym li{margin:3px 0}
+.check li{margin:9px 0}
+.sched{display:flex;flex-wrap:wrap;gap:12px;margin:16px 0}
+.sched div{flex:1 1 240px;background:#f8f8f5;border:1px solid #e4e3dc;border-radius:8px;padding:12px 16px}
+.sched b{display:block;color:#1f4a63;margin-bottom:4px}
+.tag{display:inline-block;background:#e8ebe9;color:#3d5a4d;font-size:12.5px;
+padding:1px 9px;border-radius:11px;margin-left:6px;vertical-align:middle}
+footer{margin-top:56px;padding-top:18px;border-top:1px solid #e4e3dc;font-size:14px;color:#6b6a63}
+footer a{color:#1f4a63}
+a{color:#1f4a63}
+@media(max-width:640px){.wrap{padding:30px 15px 60px}h1{font-size:23px}pre{font-size:12px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Day 9｜SLAM 原理與 slam_toolbox 建圖存圖</h1>
+<p class="meta">2026-08-13（週四）· 第二週 第 2 天 · 主題：Occupancy Grid / log-odds / Bayes 濾波 / 粒子濾波 / loop closure / slam_toolbox</p>
+
+<div class="goal">
+<b>今日目標</b><br>
+今天結束時，你要能夠：<b>用 slam_toolbox 在 Gazebo 裡開著 TurtleBot3 跑一圈，即時在 rviz2 看著地圖長出來，把地圖存成 .pgm + .yaml，並且能對學生講清楚「那張黑白灰的圖到底是怎麼從雷射點算出來的」。</b>
+</div>
+
+<h2>時段安排（總計 5.5 小時）</h2>
+<div class="sched">
+<div><b>上午 · 理論（2.0 h）</b>SLAM 到底在解什麼問題、Occupancy Grid、log-odds 更新、Bayes 濾波、粒子濾波直覺、loop closure 與圖優化</div>
+<div><b>下午 · 實作（2.5 h）</b>裝 slam_toolbox → 跑 TurtleBot3 world → 鍵盤遙控建圖 → rviz2 觀察 → 存圖 → 打開 .pgm/.yaml 看內容</div>
+<div><b>晚上 · 收尾（1.0 h）</b>故意把地圖弄壞（開太快、原地轉圈、走重複路徑）觀察現象 → 寫助教筆記 → 回報</div>
+</div>
+
+<h2>一、SLAM 到底在解什麼問題</h2>
+
+<h3>1-1 為什麼會有 SLAM 這個東西</h3>
+<p>機器人要導航，需要兩樣東西：<b>一張地圖</b>（環境長什麼樣）和<b>自己在地圖裡的位置</b>（pose）。問題是：</p>
+<ul>
+<li>如果你已經有地圖，要算出自己在哪 → 這叫 <b>Localization（定位）</b>，是可解的（Day 10 的 AMCL）。</li>
+<li>如果你已經知道自己每一刻在哪，要畫地圖 → 這叫 <b>Mapping（建圖）</b>，也是可解的（今天的 Occupancy Grid）。</li>
+<li>但真實情況是：<b>兩個都不知道</b>。要靠不準的輪速計（odometry）和有雜訊的雷射，同時把兩件事一起估出來。這就是 SLAM（Simultaneous Localization and Mapping），也是為什麼它被稱作「雞生蛋、蛋生雞」問題。</li>
+</ul>
+
+<div class="ana">
+<b>比喻</b>：你被蒙眼帶到一棟陌生的大樓，只給你一根導盲杖（雷射）和一個會慢慢走鐘的計步器（odometry）。你要一邊走一邊在腦中畫平面圖，同時還要記住自己現在畫到圖上的哪一點。走久了計步器會漂，你腦中的位置就會偏，畫出來的牆就會歪；但如果你摸到一面「欸這面牆我剛剛摸過」的牆，你就可以回頭把整張圖修正——那個「欸我來過」的瞬間，就是 <b>loop closure</b>。
+</div>
+
+<h3>1-2 數學上的寫法（知道在算什麼就好）</h3>
+<div class="formula">p( x<sub>1:t</sub> , m | z<sub>1:t</sub> , u<sub>1:t</sub> )</div>
+<ul class="sym">
+<li><b>x<sub>1:t</sub></b>：機器人從時刻 1 到 t 的所有 pose（位置 + 朝向）。這是我們想知道的「我在哪」。</li>
+<li><b>m</b>：地圖（map）。這是我們想知道的「環境長怎樣」。</li>
+<li><b>z<sub>1:t</sub></b>：所有的觀測（observation），也就是每一幀 <code>/scan</code> 的雷射距離值。這是「我看到什麼」。</li>
+<li><b>u<sub>1:t</sub></b>：所有的控制輸入（control），也就是「我叫輪子轉多少」，實務上就是 odometry 的增量。這是「我以為我移動了多少」。</li>
+<li><b>p( · | · )</b>：條件機率。整條式子念作「<b>在我看到這些、我下了這些指令的前提下，我的軌跡和地圖長這樣的機率有多大</b>」。SLAM 就是去找讓這個機率最大的那組 (軌跡, 地圖)。</li>
+</ul>
+<p>要記住的重點只有一句：<b>SLAM 的輸出不是一個確定答案，而是一個機率分布</b>。所以地圖上的每一格不是「有牆／沒牆」，而是「有牆的機率是 0.83」。這直接解釋了為什麼建出來的圖有灰色。</p>
+
+<div class="mis">
+<b>學生常見誤解</b>：「SLAM 就是把雷射點畫出來而已」。不是。單純把點畫出來叫 point cloud accumulation，走十公尺就會因為 odometry 漂移而糊成一團。SLAM 的核心價值是<b>用觀測反過來修正位置估計</b>（scan matching + loop closure），這才是它跟「畫點」的本質差別。
+</div>
+
+<h2>二、Occupancy Grid：地圖是怎麼存的</h2>
+
+<h3>2-1 它解決什麼問題</h3>
+<p>電腦沒辦法存「一面牆」這種概念，只能存數字。Occupancy Grid（佔據柵格）的做法是：把地面切成一格一格的方格（TurtleBot3 預設 <code>resolution = 0.05</code>，也就是每格 5 公分），每格存一個數字代表「這格被東西佔住的機率」。</p>
+
+<div class="ana">
+<b>比喻</b>：像遊戲裡的「戰爭迷霧」。整張圖一開始是未知的灰色，機器人走過、雷射掃過的地方才會被「點亮」成黑（有障礙）或白（空曠）。沒掃到的永遠是灰的。
+</div>
+
+<h3>2-2 ROS2 裡的實際數值</h3>
+<p>Topic 是 <code>/map</code>，型別是 <code>nav_msgs/msg/OccupancyGrid</code>。裡面的 <code>data</code> 是一個一維陣列（int8），值的定義是：</p>
+<table>
+<tr><th>值</th><th>意義</th><th>rviz2 顯示</th><th>存成 .pgm 時</th></tr>
+<tr><td><code>0</code></td><td>free，確定沒東西</td><td>白色（淺灰）</td><td>254（白）</td></tr>
+<tr><td><code>100</code></td><td>occupied，確定有障礙</td><td>黑色</td><td>0（黑）</td></tr>
+<tr><td><code>-1</code></td><td>unknown，沒掃到過</td><td>灰色</td><td>205（中灰）</td></tr>
+<tr><td><code>1~99</code></td><td>中間機率（不確定）</td><td>深淺不一的灰</td><td>依 thresholds 二值化</td></tr>
+</table>
+
+<p>陣列是<b>一維</b>的，要自己換算成二維座標。公式：</p>
+<div class="formula">index = y &times; width + x</div>
+<p>而格子座標 (x, y) 換回世界座標（公尺）：</p>
+<div class="formula">world_x = origin.x + (x + 0.5) &times; resolution</div>
+<ul class="sym">
+<li><b>origin</b>：地圖左下角在 <code>map</code> frame 裡的座標，存在 <code>info.origin</code>（也存在 .yaml 的 <code>origin:</code> 欄位）。<b>它幾乎一定是負數</b>，因為機器人啟動點通常被當成 (0,0)，而地圖往四面八方長。</li>
+<li><b>resolution</b>：每格幾公尺，0.05 就是 5 公分。</li>
+<li><b>+0.5</b>：取格子中心而不是左下角。忘了加這個會有半格（2.5 公分）的系統性偏移。</li>
+</ul>
+
+<div class="mis">
+<b>學生常見誤解</b>：以為 <code>data[0]</code> 是地圖左上角。<b>不是，是左下角</b>（ROS 用右手座標系，y 向上）。用 OpenCV/matplotlib 畫出來上下顛倒，九成是這個原因，解法是 <code>np.flipud()</code>。
+</div>
+
+<h2>三、log-odds：為什麼要用「機率的對數」</h2>
+
+<h3>3-1 它解決什麼問題</h3>
+<p>雷射每掃一次，都要更新格子的機率。如果直接存機率 p 並用 Bayes 公式更新，每次都要做乘法和除法（分母還要正規化），而且機率會被壓在 0 和 1 附近，浮點數精度會爛掉——一格被掃了 500 次都說「有牆」，機率會變成 0.99999999，再更新下去就數值失真了。</p>
+<p>解法：改存 <b>log-odds</b>（對數勝算比）。</p>
+
+<div class="formula">l = log( p / (1 − p) )</div>
+<ul class="sym">
+<li><b>p</b>：這格被佔據的機率。</li>
+<li><b>p / (1−p)</b>：odds（勝算比）。p=0.5 時 odds=1；p 越大 odds 越大。</li>
+<li><b>l</b>：取對數之後。p=0.5 → l=0（完全不知道）；p&gt;0.5 → l 為正（傾向有障礙）；p&lt;0.5 → l 為負（傾向空的）。範圍是 −∞ 到 +∞，不會被壓在邊界。</li>
+</ul>
+
+<p>神奇之處在於，用了 log-odds 之後，Bayes 更新從「乘除」變成「<b>加減</b>」：</p>
+<div class="formula">l<sub>t</sub> = l<sub>t−1</sub> + l<sub>sensor</sub> − l<sub>0</sub></div>
+<ul class="sym">
+<li><b>l<sub>t−1</sub></b>：這格之前累積的信念。</li>
+<li><b>l<sub>sensor</sub></b>：這一幀雷射對這格的「投票」。雷射打到的那格 → 加一個正值（inverse sensor model，例如 +0.85）；雷射光線<b>穿過</b>的那些格 → 加一個負值（例如 −0.4，因為光穿過代表那裡是空的）。</li>
+<li><b>l<sub>0</sub></b>：先驗（prior）。通常設 0（代表一開始 p=0.5，什麼都不知道），所以實務上這項直接消失。</li>
+</ul>
+
+<div class="ana">
+<b>比喻</b>：像法庭上的證據累積。每個證人（每一幀雷射）都投一票，說「我覺得有」或「我覺得沒有」，票數直接相加。看到很多次就票數很高，中間偶爾有一票反對也不會立刻翻盤——這正是為什麼 SLAM 對單幀雜訊有抵抗力，也是為什麼<b>一個走來走去的人不會在地圖上留下實心黑塊</b>（他離開後，後續穿過的光線會一直投負票，慢慢把他洗掉）。
+</div>
+
+<p>要顯示地圖時再轉回機率：</p>
+<div class="formula">p = 1 − 1 / (1 + e<sup>l</sup>)</div>
+
+<div class="warn">
+<b>調參直覺</b>：slam_toolbox 對應的參數是 <code>occupancy_threshold</code>（多高的機率才算黑）。設太低 → 一點雜訊就變黑牆，地圖髒；設太高 → 真的牆變成灰的，Nav2 的 costmap 會以為那裡可以走，直接撞牆。預設 0.1 對室內夠用。
+</div>
+
+<h3>3-2 光線穿過哪些格子？—— Bresenham</h3>
+<p>「雷射從機器人打到牆」是一條線段，要知道這條線經過哪些格子（好給它們投負票），用的是 <b>Bresenham 直線演算法</b>——就是電腦繪圖畫斜線的那個經典演算法，純整數加減、不用浮點除法，所以極快。這個叫 <b>ray casting</b>。知道這個名詞就好，不用會寫。</p>
+
+<h2>四、Bayes 濾波與粒子濾波（位置怎麼估）</h2>
+
+<h3>4-1 Bayes 濾波：所有定位演算法的骨架</h3>
+<p>不管是 EKF、粒子濾波還是圖優化，骨架都是同一個兩步循環：</p>
+<ol>
+<li><b>Predict（預測 / motion update）</b>：根據輪速計，把「我在哪」的機率分布往前推。因為輪速計不準，<b>這一步一定會讓不確定性變大</b>（分布變胖）。</li>
+<li><b>Update（更新 / measurement update）</b>：拿雷射觀測跟已知地圖比對，把不符合觀測的可能性壓掉。<b>這一步讓不確定性變小</b>（分布變瘦）。</li>
+</ol>
+
+<div class="ana">
+<b>比喻</b>：閉著眼睛走路。每走一步，你對自己位置的把握就變差一點（predict）；每張開眼睛看一次，把握就回來一些（update）。SLAM 就是這兩件事以 10~40 Hz 的頻率不停交替。
+</div>
+
+<div class="mis">
+<b>學生常見誤解</b>：「odometry 不準，那乾脆不要用」。錯。predict 步驟需要 odometry 提供「移動的初始猜測」，scan matching 才有起點可以優化。<b>完全沒有 odometry，scan matching 會找不到收斂方向</b>。odometry 的角色是「大概對」，雷射的角色是「修正到精準」。
+</div>
+
+<h3>4-2 粒子濾波（Particle Filter）</h3>
+<p>問題：機率分布長什麼形狀？如果假設它是高斯分布（一個橢圓），就是 EKF——但真實的分布常常是多峰的（「我可能在走廊 A，也可能在長得一模一樣的走廊 B」），高斯表達不出來。</p>
+<p>粒子濾波的做法很暴力也很聰明：<b>用一大堆假設點（粒子）來近似任意形狀的分布</b>。每個粒子是一個完整的猜測「機器人在 (x, y, θ)」。流程：</p>
+<ol>
+<li>撒 N 個粒子（例如 2000 個），一開始隨機散布。</li>
+<li><b>Predict</b>：每個粒子都照 odometry 移動，再各自加一點隨機雜訊。</li>
+<li><b>Weight</b>：對每個粒子問「如果我真的在這，雷射應該看到什麼？」跟實際 <code>/scan</code> 比對，越像的權重越高。</li>
+<li><b>Resample</b>：照權重重新抽樣——高權重的粒子被複製多份，低權重的被淘汰。粒子群自然就會聚集到正確位置。</li>
+</ol>
+
+<div class="ana">
+<b>比喻</b>：派 2000 個偵察兵各自猜「我們在地圖的哪裡」，然後問每個人「照你的猜法，你左邊三公尺應該有牆，對嗎？」猜錯的被淘汰，猜對的多複製幾個。幾輪之後大家會擠在同一個地方——那就是答案。
+</div>
+
+<div class="warn">
+<b>助教必知</b>：Nav2 的 <b>AMCL</b> 就是粒子濾波（Adaptive Monte Carlo Localization），Day 10 會用到。但 <b>slam_toolbox 不是粒子濾波</b>，它是 <b>graph-based SLAM</b>（見下一節）。舊的 <code>gmapping</code> 才是粒子濾波（Rao-Blackwellized PF）。學生問「slam_toolbox 是不是 gmapping 的新版」時，答案是：<b>解決同一個問題，但用完全不同的方法</b>。
+</div>
+
+<h3>4-3 為什麼 ROS2 主推 slam_toolbox 而不是 gmapping</h3>
+<table>
+<tr><th></th><th>gmapping（粒子濾波）</th><th>slam_toolbox（圖優化）</th></tr>
+<tr><td>核心方法</td><td>每個粒子帶一整張地圖</td><td>維護 pose graph，最後統一優化</td></tr>
+<tr><td>記憶體</td><td>大（N 張地圖）</td><td>小（只存 node + 約束）</td></tr>
+<tr><td>大場域</td><td>會爆</td><td>可以</td></tr>
+<tr><td>Loop closure</td><td>靠重採樣，弱</td><td>明確偵測 + 全域優化，強</td></tr>
+<tr><td>可否續建 / 編輯地圖</td><td>不行</td><td>可以（serialization、localization mode）</td></tr>
+<tr><td>ROS2 支援</td><td>已無官方維護</td><td>官方主推</td></tr>
+</table>
+
+<h2>五、Loop Closure：SLAM 最關鍵的一步</h2>
+
+<h3>5-1 它解決什麼問題</h3>
+<p>不管 scan matching 多準，每一幀都會有一點點誤差，而誤差會<b>累積</b>。繞著一棟建築走一圈回到原點，你估計的位置可能已經偏了兩公尺——地圖上就會出現「同一條走廊畫成兩條」的鬼影。</p>
+<p>Loop closure 就是<b>認出「我回到來過的地方了」</b>，然後加一條「這兩個時刻的 pose 應該是同一點」的硬約束，再把整條軌跡拉回來。</p>
+
+<div class="ana">
+<b>比喻</b>：像把一條有點鬆的項鍊，兩端扣起來的瞬間——整條鍊子會被拉緊，之前每一顆珠子的位置都會被微調。這就是 loop closure 觸發時，rviz2 裡整張地圖「啪」地跳一下、瞬間變整齊的原因。<b>第一次看到會以為是 bug，其實那是 SLAM 最漂亮的時刻。</b>
+</div>
+
+<h3>5-2 Pose Graph 是什麼</h3>
+<ul>
+<li><b>Node（節點）</b>：某個時刻的機器人 pose，以及那時候的一幀 scan。</li>
+<li><b>Edge（邊 / 約束）</b>：兩個 node 之間的相對位移。有兩種來源：
+  <ul>
+  <li><b>Odometry edge</b>：相鄰時刻之間，來自輪速計 + scan matching。</li>
+  <li><b>Loop closure edge</b>：時間上相隔很遠、但空間上其實在同一處的兩個 node。</li>
+  </ul>
+</li>
+<li><b>優化（Ceres solver）</b>：找一組 pose，讓「所有邊的實際差距」跟「邊上寫的約束」總誤差最小。這叫 <b>graph optimization / bundle adjustment</b>。</li>
+</ul>
+
+<div class="warn">
+<b>失敗模式：false loop closure。</b>如果環境裡有兩個長得一模一樣的區域（例如兩條相同的走廊、一整排相同的隔間），SLAM 可能誤判「我回到原點了」，然後把兩個不同的地方硬扣在一起——地圖會瞬間扭曲成沒法用的樣子，而且<b>不可逆</b>。這是實驗室環境（一堆相同的桌腳）最常炸掉的原因。對應參數：<code>loop_match_minimum_response_fine</code>（調高＝更嚴格，寧可漏掉也不要誤判）。
+</div>
+
+<h2>六、實作：slam_toolbox 建圖與存圖</h2>
+
+<h3>6-1 安裝與環境檢查</h3>
+<pre><code><span class="c"># === 安裝 slam_toolbox 與地圖工具（Ubuntu 22.04 + ROS2 Humble）===</span>
+sudo apt update
+sudo apt install -y \
+  ros-humble-slam-toolbox \
+  ros-humble-nav2-map-server \
+  ros-humble-turtlebot3* \
+  ros-humble-turtlebot3-gazebo
+
+<span class="c"># === 確認裝好了 ===</span>
+ros2 pkg list | grep slam_toolbox
+<span class="c"># 應該印出：slam_toolbox</span>
+
+<span class="c"># === 每個新終端機都要做的三件事（建議寫進 ~/.bashrc）===</span>
+source /opt/ros/humble/setup.bash
+export TURTLEBOT3_MODEL=burger
+export ROS_DOMAIN_ID=30          <span class="c"># 同一台電腦內固定一個值，避免跟同學互串</span>
+</code></pre>
+
+<h3>6-2 四個終端機的標準配置</h3>
+<pre><code><span class="c"># ---------- 終端機 1：Gazebo 模擬環境 ----------</span>
+source /opt/ros/humble/setup.bash
+export TURTLEBOT3_MODEL=burger
+ros2 launch turtlebot3_gazebo turtlebot3_world.launch.py
+
+<span class="c"># ---------- 終端機 2：slam_toolbox（非同步模式）----------</span>
+source /opt/ros/humble/setup.bash
+ros2 launch slam_toolbox online_async_launch.py use_sim_time:=true
+<span class="c"># ↑ use_sim_time:=true 絕對不能忘！這是新手最常炸的一行。</span>
+<span class="c">#   Gazebo 發布的是模擬時間 /clock，slam_toolbox 預設用系統牆鐘時間，</span>
+<span class="c">#   兩邊時間對不起來 → tf 查詢一律失敗 → 地圖完全不出現。</span>
+
+<span class="c"># ---------- 終端機 3：rviz2 視覺化 ----------</span>
+source /opt/ros/humble/setup.bash
+ros2 run rviz2 rviz2 -d /opt/ros/humble/share/turtlebot3_navigation2/rviz/tb3_navigation2.rviz
+<span class="c"># 若上面那份 rviz 設定檔不存在，就直接 ros2 run rviz2 rviz2 手動加：</span>
+<span class="c">#   Fixed Frame 設成 map</span>
+<span class="c">#   Add → Map      → Topic 選 /map</span>
+<span class="c">#   Add → LaserScan→ Topic 選 /scan</span>
+<span class="c">#   Add → TF       （看 map → odom → base_link 三層有沒有接上）</span>
+
+<span class="c"># ---------- 終端機 4：鍵盤遙控 ----------</span>
+source /opt/ros/humble/setup.bash
+export TURTLEBOT3_MODEL=burger
+ros2 run turtlebot3_teleop teleop_keyboard
+<span class="c"># w=前進 x=後退 a=左轉 d=右轉 s=停止</span>
+</code></pre>
+
+<h3>6-3 建圖的開車技巧（這段決定地圖品質）</h3>
+<div class="box">
+<b>四條規則，講給學生聽：</b>
+<ol>
+<li><b>慢。</b>線速度壓在 0.15 m/s 以下，角速度 0.5 rad/s 以下。快 = scan matching 來不及收斂 = 牆變重影。</li>
+<li><b>不要原地快速旋轉。</b>純旋轉時 scan matching 的觀測幾何最差，是漂移最嚴重的動作。要轉就慢慢轉，或走弧線。</li>
+<li><b>沿著牆邊走。</b>雷射要看得到特徵。在空曠大廳中央繞圈，四周都是空的，scan matching 沒東西可以對，會直接漂掉。</li>
+<li><b>刻意繞回起點。</b>走一個封閉迴圈，讓 loop closure 有機會觸發。這是把地圖從「還行」變成「精準」的關鍵動作。</li>
+</ol>
+</div>
+
+<h3>6-4 一邊建圖一邊觀察（開第五個終端機）</h3>
+<pre><code><span class="c"># 看地圖 topic 的 metadata（不印 data 陣列，不然刷屏）</span>
+ros2 topic echo /map --field info --once
+<span class="c"># 會看到 resolution / width / height / origin</span>
+
+<span class="c"># 看 tf 樹：map → odom → base_link → base_scan 有沒有完整接起來</span>
+ros2 run tf2_tools view_frames
+<span class="c"># 產生 frames.pdf，用 evince frames.pdf 打開</span>
+
+<span class="c"># 直接查 map 到 base_link 的轉換（機器人現在在地圖哪裡）</span>
+ros2 run tf2_ros tf2_echo map base_link
+
+<span class="c"># 看 slam_toolbox 有沒有在動（/map 更新頻率，正常約 0.5~2 Hz）</span>
+ros2 topic hz /map
+
+<span class="c"># 看 pose graph 的節點（loop closure 觸發時這裡會有變化）</span>
+ros2 topic echo /slam_toolbox/graph_visualization --field markers[0].points --once
+</code></pre>
+
+<h3>6-5 存圖（兩種，都要會）</h3>
+<pre><code><span class="c"># ========== 方式 A：存成 .pgm + .yaml（Nav2 導航要用這個）==========</span>
+mkdir -p ~/maps &amp;&amp; cd ~/maps
+ros2 run nav2_map_server map_saver_cli -f my_map
+<span class="c"># 產出兩個檔：my_map.pgm（圖片本體）、my_map.yaml（metadata）</span>
+
+<span class="c"># 加參數版本（門檻可調）</span>
+ros2 run nav2_map_server map_saver_cli -f my_map \
+  --occ 0.65 --free 0.25 --ros-args -p use_sim_time:=true
+<span class="c"># --occ：機率高於此值 → 存成黑（佔據）</span>
+<span class="c"># --free：機率低於此值 → 存成白（空曠）</span>
+<span class="c"># 兩者之間 → 存成灰（未知）</span>
+
+<span class="c"># ========== 方式 B：存成 slam_toolbox 專用序列化檔（可續建）==========</span>
+ros2 service call /slam_toolbox/serialize_map \
+  slam_toolbox/srv/SerializePoseGraph "{filename: '/home/$USER/maps/my_map_serial'}"
+<span class="c"># 產出 my_map_serial.posegraph + my_map_serial.data</span>
+<span class="c"># 這份保留了完整 pose graph，下次可以「接著建」或切成純定位模式。</span>
+<span class="c"># .pgm 是死的圖片，這份是活的。要補建圖一定要用這種。</span>
+</code></pre>
+
+<h3>6-6 打開存出來的檔案看看</h3>
+<pre><code>cat ~/maps/my_map.yaml</code></pre>
+<pre><code>image: my_map.pgm
+mode: trinary
+resolution: 0.05          <span class="c"># 每格 5 公分</span>
+origin: [-1.94, -2.72, 0] <span class="c"># 地圖左下角在 map frame 的 [x, y, yaw]，通常是負的</span>
+negate: 0                 <span class="c"># 0 = 白色代表 free（正常）；1 = 顏色反過來</span>
+occupied_thresh: 0.65     <span class="c"># 超過就算障礙</span>
+free_thresh: 0.25         <span class="c"># 低於就算空曠</span></code></pre>
+
+<p>用 Python 讀出來檢查（<b>今天一定要跑一次這段，親眼看到數字</b>）：</p>
+<pre><code><span class="c">#!/usr/bin/env python3</span>
+<span class="c"># check_map.py —— 讀 .pgm + .yaml，印出統計並存一張預覽圖</span>
+<span class="c"># 需要：pip install numpy pyyaml pillow matplotlib</span>
+<span class="k">import</span> numpy <span class="k">as</span> np, yaml
+<span class="k">from</span> PIL <span class="k">import</span> Image
+<span class="k">import</span> matplotlib.pyplot <span class="k">as</span> plt
+
+MAP = <span class="s">"/home/USERNAME/maps/my_map"</span>   <span class="c"># ← 改成你的路徑（不含副檔名）</span>
+
+<span class="k">with</span> open(MAP + <span class="s">".yaml"</span>) <span class="k">as</span> f:
+    meta = yaml.safe_load(f)
+
+img = np.array(Image.open(MAP + <span class="s">".pgm"</span>))
+res = meta[<span class="s">"resolution"</span>]
+ox, oy = meta[<span class="s">"origin"</span>][0], meta[<span class="s">"origin"</span>][1]
+
+print(<span class="s">f"地圖尺寸（格）: {img.shape[1]} x {img.shape[0]}"</span>)
+print(<span class="s">f"地圖尺寸（公尺）: {img.shape[1]*res:.2f} x {img.shape[0]*res:.2f}"</span>)
+print(<span class="s">f"origin（左下角世界座標）: ({ox:.2f}, {oy:.2f})"</span>)
+
+<span class="c"># .pgm 的慣例：0=黑=障礙, 205=灰=未知, 254=白=空曠</span>
+occ  = int((img &lt; 60).sum())
+unk  = int(((img &gt;= 60) &amp; (img &lt; 240)).sum())
+free = int((img &gt;= 240).sum())
+tot  = img.size
+print(<span class="s">f"障礙 {occ:7d} ({occ/tot:5.1%})"</span>)
+print(<span class="s">f"未知 {unk:7d} ({unk/tot:5.1%})   ← 這個比例太高代表沒探索完"</span>)
+print(<span class="s">f"空曠 {free:7d} ({free/tot:5.1%})"</span>)
+
+<span class="c"># 驗證座標換算：把地圖正中央那格換算成世界座標</span>
+cx, cy = img.shape[1]//2, img.shape[0]//2
+<span class="c"># 注意：.pgm 是「上」為第 0 列，OccupancyGrid 是「下」為第 0 列，所以 y 要翻</span>
+wy = oy + (img.shape[0] - 1 - cy + 0.5) * res
+wx = ox + (cx + 0.5) * res
+print(<span class="s">f"影像中心格 ({cx},{cy}) → 世界座標 ({wx:.2f}, {wy:.2f}) 公尺"</span>)
+
+plt.imshow(img, cmap=<span class="s">"gray"</span>, vmin=0, vmax=255)
+plt.title(<span class="s">"my_map.pgm"</span>); plt.colorbar()
+plt.savefig(<span class="s">"map_preview.png"</span>, dpi=120)
+print(<span class="s">"已存 map_preview.png"</span>)</code></pre>
+
+<h3>6-7 關鍵參數（改 mapper_params_online_async.yaml）</h3>
+<pre><code><span class="c"># 檔案位置：</span>
+<span class="c">#   /opt/ros/humble/share/slam_toolbox/config/mapper_params_online_async.yaml</span>
+<span class="c"># 不要直接改系統檔！複製一份出來改：</span>
+mkdir -p ~/slam_config
+cp /opt/ros/humble/share/slam_toolbox/config/mapper_params_online_async.yaml ~/slam_config/
+<span class="c"># 用自己的設定檔啟動：</span>
+ros2 launch slam_toolbox online_async_launch.py \
+  use_sim_time:=true \
+  slam_params_file:=$HOME/slam_config/mapper_params_online_async.yaml</code></pre>
+
+<table>
+<tr><th>參數</th><th>預設</th><th>調大會怎樣</th><th>調小會怎樣</th></tr>
+<tr><td><code>resolution</code></td><td>0.05</td><td>格子變粗，省記憶體，細節不見（門框可能消失）</td><td>更細，但記憶體與 CPU 暴增</td></tr>
+<tr><td><code>max_laser_range</code></td><td>20.0</td><td>遠處雜訊被畫進地圖</td><td>大空間建不完整</td></tr>
+<tr><td><code>minimum_travel_distance</code></td><td>0.5</td><td>node 變少，省資源，但地圖粗糙</td><td>node 爆量，優化變慢</td></tr>
+<tr><td><code>minimum_travel_heading</code></td><td>0.5</td><td>轉彎時取樣變少，轉角容易糊</td><td>轉彎細節好，計算量大</td></tr>
+<tr><td><code>loop_search_maximum_distance</code></td><td>3.0</td><td>更容易找到 loop，但也更容易誤判</td><td>漏掉真正的 loop，地圖不閉合</td></tr>
+<tr><td><code>loop_match_minimum_response_fine</code></td><td>0.45</td><td>更嚴格，避免 false loop closure</td><td>寬鬆，地圖可能被錯誤 loop 扭曲</td></tr>
+<tr><td><code>mode</code></td><td>mapping</td><td colspan="2">改成 <code>localization</code> 就是只定位不建圖（可取代 AMCL）</td></tr>
+</table>
+
+<h2>七、今日指定資源</h2>
+<ol>
+<li><b>Cyrill Stachniss — "Occupancy Grid Maps"</b>（YouTube，SLAM Course 第 10 講左右，約 60 分鐘）。<b>今天最重要的一支影片</b>，log-odds 更新推導講得最清楚。他的頻道是全世界講 SLAM 講得最好的地方。<br>
+搜尋：<code>Cyrill Stachniss Occupancy Grid Maps</code></li>
+<li><b>Cyrill Stachniss — "Graph-based SLAM using Pose Graphs"</b>（同頻道）。看完會懂 slam_toolbox 到底在優化什麼、loop closure 為什麼會讓整張圖跳一下。</li>
+<li><b>slam_toolbox 官方 README</b>（github.com/SteveMacenski/slam_toolbox）。<b>只要讀 "Introduction"、"Modes of Operation"、"Configuration" 三節</b>。Configuration 那節是明天調參的字典，先掃過一次留印象。</li>
+<li><b>Articulated Robotics — "Making a Map (SLAM)"</b>（YouTube，Josh Newans 的 ROS2 系列）。約 20 分鐘，把今天的實作從頭跑一次，適合下午卡住時對照。</li>
+</ol>
+
+<h2>八、✅ 今日驗收清單</h2>
+<ul class="check">
+<li>☐ <b>rviz2 裡看到地圖即時長出來</b>，而且 <code>ros2 topic hz /map</code> 有穩定輸出（不是 0）。</li>
+<li>☐ <b>成功存出 my_map.pgm 和 my_map.yaml</b>，並且能唸出 yaml 裡 <code>resolution</code>、<code>origin</code>、<code>occupied_thresh</code> 三個欄位各是什麼意思。</li>
+<li>☐ <b>跑過 check_map.py</b>，印出障礙／未知／空曠的百分比，並且看到 map_preview.png。</li>
+<li>☐ <b>用 <code>ros2 run tf2_ros tf2_echo map base_link</code> 查得到機器人在地圖裡的位置</b>，且數字會隨著開車而變。</li>
+<li>☐ <b>能不看筆記，用 60 秒講清楚</b>：為什麼地圖上會有灰色的格子？（答：log-odds 還在 0 附近／從來沒被雷射掃過，機率仍是 0.5，屬於 unknown = −1。）</li>
+<li>☐ <b>刻意繞一個封閉迴圈回到起點，親眼看到地圖「跳」一下</b>（loop closure 觸發）。看不到也沒關係，但要記錄下來。</li>
+</ul>
+
+<h2>九、🎓 助教筆記：學生最會卡的 5 個地方</h2>
+
+<h3>卡點 1：rviz2 裡什麼地圖都沒有，一片空白</h3>
+<div class="box">
+<b>症狀</b>：跑起來了但 rviz2 全灰／全空，<code>/map</code> 有 topic 但沒資料。<br>
+<b>最可能原因（八成是這個）</b>：忘了 <code>use_sim_time:=true</code>。<br>
+<b>錯誤訊息</b>（在 slam_toolbox 那個終端機）：
+<pre><code>[slam_toolbox]: Message Filter dropping message:
+  frame 'base_scan' at time 1234.567 for reason 'discarding message because
+  the queue is full'
+<span class="c">或</span>
+Lookup would require extrapolation into the past.
+Requested time 1234.5 but the earliest data is at time 1760000000.0</code></pre>
+<b>診斷指令</b>：
+<pre><code>ros2 param get /slam_toolbox use_sim_time     <span class="c"># 必須是 true</span>
+ros2 topic hz /clock                          <span class="c"># Gazebo 有在發時間嗎</span>
+ros2 topic hz /scan                           <span class="c"># 雷射有在發嗎（應該約 5~10 Hz）</span></code></pre>
+<b>解法</b>：關掉 slam_toolbox，重新加上 <code>use_sim_time:=true</code>。另外 rviz2 也要設：左側 Global Options → 或啟動時加 <code>--ros-args -p use_sim_time:=true</code>。<br>
+<b>次要原因</b>：rviz2 的 Fixed Frame 還停在 <code>base_link</code> 或 <code>odom</code>，要改成 <code>map</code>。
+</div>
+
+<h3>卡點 2：地圖有了，但牆是「雙重影」／整個歪掉</h3>
+<div class="box">
+<b>症狀</b>：同一面牆畫成兩條平行線，或走廊變成扇形展開。<br>
+<b>原因</b>：odometry 漂移 + scan matching 沒跟上，通常是<b>開太快</b>或<b>原地猛轉</b>。<br>
+<b>診斷</b>：
+<pre><code><span class="c"># 看 map → odom 的修正量。這個值代表「SLAM 認為 odometry 錯了多少」</span>
+ros2 run tf2_ros tf2_echo map odom
+<span class="c"># 正常應該在幾公分內慢慢變。如果一下跳到 0.5 m 以上，就是漂了。</span></code></pre>
+<b>解法</b>：<br>
+1. 重來一次，速度壓到 0.1 m/s、角速度 0.3 rad/s。<br>
+2. 調 <code>minimum_travel_heading</code> 從 0.5 降到 0.2（轉彎時多取樣）。<br>
+3. 走封閉迴圈讓 loop closure 修正。<br>
+<b>要跟學生強調</b>：這不是 bug，這就是 SLAM 的本質限制。<b>學會「開車配合演算法」是實機部署的核心技能</b>，不是靠調參就能完全解決的。
+</div>
+
+<h3>卡點 3：map_saver_cli 卡住不動，最後 timeout</h3>
+<div class="box">
+<b>錯誤訊息</b>：
+<pre><code>[map_saver]: Timed out waiting for map subscription
+[ERROR] [map_saver_cli]: Failed to save the map</code></pre>
+<b>三個可能原因，按順序檢查</b>：
+<pre><code><span class="c"># 1. slam_toolbox 還在跑嗎？（存圖時不能關掉它）</span>
+ros2 node list | grep slam
+
+<span class="c"># 2. /map 真的有資料嗎？</span>
+ros2 topic echo /map --field info --once
+
+<span class="c"># 3. use_sim_time 不一致（map_saver 用牆鐘、slam 用模擬時間）</span>
+ros2 run nav2_map_server map_saver_cli -f my_map --ros-args -p use_sim_time:=true</code></pre>
+<b>還有一個很坑的</b>：<code>ROS_DOMAIN_ID</code> 在不同終端機設得不一樣，兩邊根本看不到彼此。用 <code>echo $ROS_DOMAIN_ID</code> 在每個終端機都確認一次。
+</div>
+
+<h3>卡點 4：存出來的 .pgm 用小畫家打開是「上下顛倒」的</h3>
+<div class="box">
+<b>症狀</b>：學生說「地圖存錯了，跟 rviz2 裡看到的不一樣」。<br>
+<b>真相</b>：沒存錯。<code>OccupancyGrid</code> 的第 0 列是<b>地圖最下面</b>（ROS 右手座標系，y 向上）；而 <code>.pgm</code>／一般影像格式的第 0 列是<b>最上面</b>。map_saver 存檔時已經翻過一次了，所以用看圖軟體開會跟 rviz2 一致；但如果學生自己用 Python 直接讀 <code>/map</code> 的 <code>data</code> 陣列去 <code>imshow</code>，就會上下顛倒。<br>
+<b>解法</b>：<code>np.flipud(grid)</code>。<br>
+<b>講給學生的一句話</b>：「<b>ROS 的 y 往上，圖片的 row 往下，兩個永遠差一個翻轉</b>。這個坑之後在 costmap、在相機影像對應點雲時還會再遇到好幾次。」
+</div>
+
+<h3>卡點 5：地圖上有一條「幽靈軌跡」（人或動態物體的殘影）</h3>
+<div class="box">
+<b>症狀</b>：地圖上有一條斷斷續續的黑點軌跡，那是實驗時走過的人。<br>
+<b>原因</b>：Occupancy Grid 假設<b>環境是靜態的</b>。動態物體被雷射打到就會投「有障礙」的正票。<br>
+<b>為什麼有時會自己消失</b>：人走掉之後，後續穿過那裡的雷射光線會一直投負票（log-odds 減），累積夠多次就洗白了。<b>但如果那個人只出現在你剛好經過一次的地方，就永遠留在圖上。</b><br>
+<b>解法</b>：<br>
+1. 建圖時清場，別讓人在雷射高度（TurtleBot3 約 20 cm）走動。<br>
+2. 事後直接用 GIMP／小畫家把 .pgm 的黑點塗成白色（254）——<b>這是完全合法的做法，實務上大家都在修圖</b>，記得跟學生講，不然他們會覺得作弊。<br>
+3. 順便把玻璃門的位置手動塗成黑色（雷射穿透玻璃看不到，Day 25 會詳談）。
+</div>
+
+<h2>十、回報格式</h2>
+<div class="goal">
+今天結束後，請回覆我以下四件事：
+<ol>
+<li><b>完成了什麼</b>——驗收清單勾了幾項？地圖的未知比例是多少 %？</li>
+<li><b>卡在哪</b>——請<b>貼完整錯誤訊息</b>（整段 traceback／整行 log，不要只寫「跑不起來」）。</li>
+<li><b>沒懂的概念</b>——log-odds？粒子濾波？loop closure？pose graph？哪一段看完還是模糊？</li>
+<li><b>實際花的時間</b>——上午／下午／晚上各花多久，跟預估差多少。</li>
+</ol>
+</div>
+
+<footer><a href="index.html">← 回索引</a>　·　Physical AI 助教特訓 Day 9 / 30　·　Ubuntu 22.04 · ROS2 Humble · Gazebo Classic 11</footer>
+
+</div>
+</body>
+</html>
