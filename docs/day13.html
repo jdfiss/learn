@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Day 13｜動力學、PID、重力補償、計算力矩、阻抗控制與 ros2_control</title>
+<style>
+:root{color-scheme:light}
+*{box-sizing:border-box}
+body{margin:0;background:#fcfcfb;color:#2e2c27;
+ font-family:-apple-system,"Segoe UI","PingFang TC","Microsoft JhengHei",sans-serif;
+ line-height:1.8}
+.wrap{max-width:900px;margin:0 auto;padding:44px 22px 90px}
+h1{font-family:Georgia,"Noto Serif TC",serif;font-size:30px;margin:0 0 4px;font-weight:700;line-height:1.35}
+.meta{color:#6b6a63;font-size:14px;margin:0 0 28px}
+h2{font-size:21px;margin:46px 0 12px;padding-bottom:8px;border-bottom:2px solid #e4e3dc}
+h3{font-size:17px;margin:30px 0 8px;color:#1b3a5c}
+h4{font-size:15px;margin:20px 0 6px;color:#4a4740}
+p,li{font-size:15.5px}
+.goal{background:#eef4fb;border-left:4px solid #2f6ba3;padding:14px 18px;border-radius:0 6px 6px 0;margin:18px 0}
+.warn{background:#fdf3e7;border-left:4px solid #d08a2c;padding:12px 16px;border-radius:0 6px 6px 0;margin:14px 0;font-size:15px}
+.myth{background:#fbeef0;border-left:4px solid #b04a5a;padding:12px 16px;border-radius:0 6px 6px 0;margin:14px 0;font-size:15px}
+.meta-box{background:#f4f3ee;border:1px solid #e4e3dc;border-radius:8px;padding:14px 18px;margin:16px 0}
+table{width:100%;border-collapse:collapse;margin:16px 0;font-size:14.5px}
+th,td{border:1px solid #e0dfd7;padding:8px 10px;text-align:left;vertical-align:top}
+th{background:#f4f3ee}
+pre{background:#1d2229;color:#e6e6e1;padding:16px;border-radius:8px;overflow-x:auto;
+ font-size:13.5px;line-height:1.6;margin:14px 0}
+code{font-family:"SF Mono",Menlo,Consolas,"DejaVu Sans Mono",monospace}
+p code,li code,td code{background:#efeee8;color:#8a3b2a;padding:1px 5px;border-radius:4px;font-size:13.5px}
+.formula{background:#f7f7f3;border:1px solid #e4e3dc;border-radius:6px;padding:12px 16px;
+ margin:14px 0;font-family:"DejaVu Serif",Georgia,serif;font-size:16.5px;text-align:center}
+ul,ol{padding-left:24px}
+li{margin:5px 0}
+.chk{list-style:none;padding-left:0}
+.chk li{padding:9px 0 9px 34px;position:relative;border-bottom:1px dashed #e4e3dc}
+.chk li:before{content:"☐";position:absolute;left:6px;font-size:19px;color:#2f6ba3}
+.sched{display:flex;flex-direction:column;gap:10px;margin:16px 0}
+.slot{border:1px solid #e4e3dc;border-radius:8px;padding:12px 16px;background:#fff}
+.slot b{color:#1b3a5c}
+.tag{display:inline-block;background:#1b3a5c;color:#fff;font-size:12px;padding:2px 9px;
+ border-radius:11px;margin-right:8px;vertical-align:2px}
+footer{margin-top:60px;padding-top:18px;border-top:1px solid #e4e3dc;font-size:14px;color:#6b6a63}
+footer a{color:#2f6ba3}
+@media(max-width:640px){.wrap{padding:30px 15px 60px}h1{font-size:24px}pre{font-size:12.5px}}
+</style>
+</head>
+<body><div class="wrap">
+
+<h1>Day 13｜運動學（二）：動力學、PID、重力補償、計算力矩、阻抗控制與 ros2_control</h1>
+<p class="meta">2026-08-17（星期一）· 第二週 Day 6/7 · 前置：Day 12 FK/IK/Jacobian · 環境：Ubuntu 22.04 + ROS2 Humble + Python 3.10</p>
+
+<div class="goal">
+<b>今日目標（一句話）</b><br>
+今天結束時，你要能對著一支垂下來抖動的模擬手臂說出「這是重力項沒補、gains 太小」，並且知道要去改 ros2_control 的哪個 YAML、用哪三行指令確認 controller 真的載進去了。
+</div>
+
+<h2>⏱ 時段安排（總計 5.5 小時）</h2>
+<div class="sched">
+<div class="slot"><span class="tag">上午 2.5h</span><b>理論</b>：動力學方程五個項的物理意義 → PID 三項 → 重力補償 → 計算力矩控制 → 阻抗 vs 導納控制。<b>不推導</b>，只弄懂每一項在動什麼。</div>
+<div class="slot"><span class="tag">下午 2h</span><b>實作</b>：(1) 純 Python 單連桿模擬，親手比較 PID / PD+重力補償 / 計算力矩三種控制器的追蹤誤差；(2) Robotics Toolbox 算真實手臂的 M(q)、G(q)；(3) 裝 ros2_control，把整套 controller 清單叫出來看。</div>
+<div class="slot"><span class="tag">晚上 1h</span><b>收尾</b>：寫助教筆記（今天有 6 個學生必卡的坑），填驗收清單，回報。</div>
+</div>
+
+<h2>📚 知識點逐個講解</h2>
+
+<h3>1. 為什麼要學動力學？——位置控制與力矩控制的分水嶺</h3>
+<p><b>它解決什麼問題：</b>Day 12 的 IK 只回答「關節要轉到幾度」，完全沒回答「要出多少力才轉得過去」。你叫 IK 算出目標角度，然後直接命令馬達「去那裡」，這叫<b>位置控制</b>——馬達內部的驅動器會自己想辦法。這在手臂輕、動作慢的時候夠用；但當手臂要快速揮動、要抓起 2kg 的東西、或要跟人接觸而不能把人撞傷時，位置控制就不夠了。你必須直接算「力矩」。</p>
+<p><b>白話 + 比喻：</b>位置控制像用 GPS 導航叫車「開到台北車站」，車子怎麼踩油門你不管。力矩控制像你自己開車，每一刻都要決定油門踩幾分——上坡要多踩（重力項）、轉彎要修方向（科氏力）、車子重要提早煞（慣量）。動力學方程就是「這台車在這個姿勢下，各種力各佔多少」的帳本。</p>
+<p><b>對助教的意義：</b>Physical AI 課程後半的 Imitation Learning、Sim2Real 幾乎都在力矩／速度層面出手，學生問「為什麼我的 policy 在模擬跑得好、上實機就抖」，答案八成落在今天這幾個名詞裡。</p>
+<div class="myth"><b>學生常見誤解：</b>「有 IK 就會控制手臂了。」IK 只是幾何解，它不知道重力存在。實機上你把 IK 解丟給一支沒有重力補償的手臂，它會往下垂並在目標點附近抖——因為控制器一直在跟重力打架。</div>
+
+<h3>2. 動力學方程：M(q)q̈ + C(q,q̇)q̇ + G(q) + F(q̇) = τ</h3>
+<p><b>它解決什麼問題：</b>這一條式子把「關節要出多少力矩」和「手臂會怎麼動」綁在一起。給 τ 算 q̈ 叫<b>正向動力學</b>（模擬器在做的事：Gazebo / Isaac Sim 每個 timestep 都在解這個）；給想要的 q̈ 算 τ 叫<b>逆向動力學</b>（控制器在做的事）。</p>
+<div class="formula">M(q)·q̈ + C(q,q̇)·q̇ + G(q) + F(q̇) = τ</div>
+<table>
+<tr><th>符號</th><th>叫什麼</th><th>物理意義（白話）</th><th>會怎麼咬你</th></tr>
+<tr><td><code>q, q̇, q̈</code></td><td>關節角度／角速度／角加速度</td><td>n 個關節就是 n 維向量。手臂的「狀態」。</td><td>單位一定是 rad 與 rad/s，不是度。學生最常錯這裡。</td></tr>
+<tr><td><code>M(q)</code></td><td>慣量矩陣（Mass / Inertia Matrix）</td><td>「這個姿勢下手臂有多難推動」。n×n 矩陣，<b>會隨姿勢改變</b>——手臂伸直時對基座來說很重，收起來時很輕（花式滑冰選手收手加速轉）。對角線是各關節自己的慣量，非對角線是「轉 joint2 會連帶推動 joint1」的耦合。</td><td>它<b>不是常數</b>。學生把它當常數調一組 PID gains，在某個姿勢好、換姿勢就爛。</td></tr>
+<tr><td><code>C(q,q̇)·q̇</code></td><td>科氏力與離心力項</td><td>只在「動起來」才存在，且跟速度<b>平方</b>成正比。離心力＝旋轉時把東西往外甩；科氏力＝一邊轉一邊伸長手臂時產生的側向力（像在旋轉木馬上往外走，你會被推向側面）。</td><td>慢速動作時可以忽略，這是為什麼很多教學程式不算它也能動。速度一快就爆掉。</td></tr>
+<tr><td><code>G(q)</code></td><td>重力項</td><td>「手臂靜止在這個姿勢，光是不掉下來要多少力矩」。<b>只跟姿勢有關，跟速度無關</b>。是所有項裡最大也最好處理的一個。</td><td>沒補這一項＝手臂會垂、會有穩態誤差。這是實機第一天最常見的現象。</td></tr>
+<tr><td><code>F(q̇)</code></td><td>摩擦項</td><td>黏滯摩擦（跟速度成正比）＋庫倫摩擦（跟方向有關的固定值）。減速機、皮帶都在這裡。</td><td>模擬器裡通常設得太小或沒設 → Sim2Real gap 的頭號來源（Day 19 會回來算帳）。</td></tr>
+<tr><td><code>τ</code></td><td>關節力矩</td><td>馬達真正輸出的東西，單位 N·m。旋轉關節是力矩、線性關節（滑軌）是力 N。</td><td>每顆馬達有 τ_max。IK 算得出來≠馬達出得起這個力矩。</td></tr>
+</table>
+<div class="warn"><b>抓重點：</b>四項的量級大小順序在一般手臂上是 <code>G(q)</code> ≫ <code>M(q)q̈</code> &gt; <code>F(q̇)</code> &gt; <code>C(q,q̇)q̇</code>（低速時）。所以「只補重力」就能拿到八成效果——這是今天最實用的一句話。</div>
+
+<h3>3. PID 控制：誤差回饋的三種吃法</h3>
+<p><b>它解決什麼問題：</b>你不可能完美知道 M、C、G（模型永遠有誤差），所以需要一個「不管為什麼錯了，錯了就修」的機制。PID 就是最便宜有效的那個。</p>
+<div class="formula">τ = K<sub>p</sub>·e + K<sub>i</sub>·∫e dt + K<sub>d</sub>·ė　，其中 e = q<sub>desired</sub> − q<sub>actual</sub></div>
+<ul>
+<li><b>K<sub>p</sub>（比例，現在）</b>：差多少就出多少力，像彈簧——拉得越開回彈越強。太小→到不了目標（穩態誤差）；太大→過衝、震盪。</li>
+<li><b>K<sub>i</sub>（積分，過去）</b>：把「一直差一點」的歷史累積起來，專門消滅穩態誤差。像一個記仇的人：你欠我一點點很久了，我終究要討回來。副作用是反應變慢、容易震盪。</li>
+<li><b>K<sub>d</sub>（微分，未來）</b>：看誤差變化的速度，像阻尼器／避震器——快接近目標時先煞車，抑制過衝。對雜訊極度敏感（微分把雜訊放大）。</li>
+</ul>
+<p><b>調參順序（給學生的口訣）</b>：先只開 P 調到「會動、稍微過衝」→ 加 D 把過衝壓掉 → 最後才小量加 I 消掉殘留誤差。<b>先 P、後 D、最後 I</b>。</p>
+<div class="myth"><b>學生常見誤解一：</b>「K<sub>p</sub> 越大越精準。」不對。K<sub>p</sub> 太大會讓系統進入震盪甚至發散，而且會放大感測器雜訊變成馬達尖叫。<br>
+<b>學生常見誤解二：</b>「積分項一定要加。」在有重力補償的手臂上，I 項常常是抖動來源。而且會遇到 <b>integral windup（積分飽和）</b>：馬達已經出到最大力矩了但還沒到位，積分項繼續無腦累加，等到終於動起來會嚴重過衝。解法是 <code>i_clamp</code>（積分項上限）——ros2_control 的 PID 參數裡就有這一項，這也是學生第一次看 YAML 時最不懂的欄位。</div>
+
+<h3>4. 重力補償（Gravity Compensation）：投報率最高的一招</h3>
+<p><b>它解決什麼問題：</b>純 PID 要靠「先產生誤差」才會出力，所以手臂必然先垂一點才會被拉回來。重力補償是「不等它垂，我先把撐住的力矩喂進去」。</p>
+<div class="formula">τ = G(q) + K<sub>p</sub>·e + K<sub>d</sub>·ė</div>
+<p><b>白話 + 比喻：</b>像扶著一個學走路的小孩。純 PID 是「等他快跌倒才拉」；重力補償是「一直輕輕托著他的重量，PID 只負責修方向」。因為 G(q) 只跟姿勢有關，你隨時算得出來，不需要知道速度或加速度——所以它便宜、穩定、幾乎沒有副作用。</p>
+<p><b>一個立刻能懂的實驗</b>：協作機器人（UR、Franka）可以用手直接推著它走，鬆手就停在那——那就是純重力補償模式，控制器只出「撐住自己」的力矩，其餘交給你的手。</p>
+<div class="myth"><b>學生常見誤解：</b>「重力補償要知道手臂在哪。」它需要的是<b>目前的關節角度</b>（用來算 G(q)），不是目標角度。學生常誤用 q_desired 去算 G，在快速運動時就會補錯方向。</div>
+
+<h3>5. 計算力矩控制（Computed Torque / Inverse Dynamics Control）</h3>
+<p><b>它解決什麼問題：</b>重力補償解決了靜態，但快速運動時 M(q)q̈ 和 C 也不小。計算力矩控制把整條動力學方程都拿來當「前饋（feedforward）」，讓剩下要靠回饋修的誤差趨近於零。</p>
+<div class="formula">τ = M(q)·[ q̈<sub>d</sub> + K<sub>d</sub>·ė + K<sub>p</sub>·e ] + C(q,q̇)·q̇ + G(q)</div>
+<p><b>每一塊在幹什麼：</b></p>
+<ul>
+<li><code>q̈<sub>d</sub></code>：想要的加速度（來自軌跡規劃，MoveIt2 的 trajectory 就帶著這個）——這是<b>前饋</b>，不用等誤差發生。</li>
+<li><code>K<sub>d</sub>ė + K<sub>p</sub>e</code>：修模型不準的殘差。</li>
+<li>乘上 <code>M(q)</code> 再加 <code>C + G</code>：把「我想要的加速度」翻譯成「馬達要出的力矩」。</li>
+</ul>
+<p><b>為什麼這招很漂亮（feedback linearization）</b>：如果模型 100% 準，把上式代回動力學方程，M、C、G 全部消掉，剩下 <code>ë + K<sub>d</sub>ė + K<sub>p</sub>e = 0</code>——一條乾淨的二階線性微分方程。意思是：<b>不管手臂多重、多複雜、在什麼姿勢，誤差都以你指定的方式收斂</b>。你可以直接用 K<sub>p</sub>=ω², K<sub>d</sub>=2ζω 設計你要的響應（ζ=1 臨界阻尼，不過衝）。</p>
+<p><b>比喻：</b>重力補償是「托住體重」；計算力矩是「連他下一步要往哪跨、跨多快都預先幫他配好力」。前者只看姿勢，後者連未來的加速度都算進去。</p>
+<div class="myth"><b>學生常見誤解：</b>「計算力矩比 PID 好，所以永遠用它。」它<b>完全依賴模型精度</b>。連桿質量、質心位置、慣量張量寫錯（URDF 的 <code>&lt;inertial&gt;</code> 是學生最愛亂填的地方，常見「隨便填 1」），計算力矩會比純 PID 更糟——因為它自信地把錯的前饋大力灌進去。實務上：模型不確定就用 PD+重力補償；模型好且要求高速精準才上計算力矩。</div>
+
+<h3>6. 阻抗控制與導納控制：跟世界接觸時要「軟」</h3>
+<p><b>它解決什麼問題：</b>前面全部是「位置追蹤」思維——目標在哪就去哪，撞到東西也要去。這在插孔、擦桌子、跟人協作時會出事：位置差一點點，剛性控制器就會用巨大力矩硬幹，把工件／手指／自己弄壞。</p>
+<div class="formula">F = K<sub>x</sub>·(x<sub>d</sub> − x) + D<sub>x</sub>·(ẋ<sub>d</sub> − ẋ) + M<sub>x</sub>·(ẍ<sub>d</sub> − ẍ)</div>
+<ul>
+<li><code>K<sub>x</sub></code>（剛度 stiffness，N/m）：偏離目標 1 公尺要出多少力。設大＝硬，設小＝軟。</li>
+<li><code>D<sub>x</sub></code>（阻尼 damping）：吸震，避免碰到東西後彈跳震盪。</li>
+<li><code>M<sub>x</sub></code>（虛擬質量）：讓末端「感覺起來」有多重。通常設小或忽略。</li>
+<li>注意這裡的 x 是<b>末端在笛卡兒空間的位置</b>，不是關節角度。要靠 Day 12 的 Jacobian 轉換：<code>τ = Jᵀ·F</code>。這就是為什麼 Day 12 必須先學 Jacobian。</li>
+</ul>
+<p><b>白話 + 比喻：</b>阻抗控制＝「在末端和目標點之間掛一根虛擬彈簧＋避震器」，你可以自由指定這根彈簧多硬。硬得像鐵棒＝傳統位置控制；軟得像橡皮筋＝可以被人推開、插孔時會自己滑進去。</p>
+<p><b>阻抗 vs 導納（一句話分清）</b>：<b>阻抗控制</b>＝量位置偏差、輸出力矩（不需要力感測器，靠關節力矩控制實現，Franka / 協作機器人的做法）。<b>導納控制</b>＝量力、輸出位置命令（需要力／力矩感測器，外層包在既有位置控制器外面，工業手臂加 F/T sensor 的做法）。兩者是彼此的「因果反過來」。</p>
+<div class="myth"><b>學生常見誤解：</b>「阻抗控制 ＝ 力控制。」不是。純力控制是「不管你在哪，我就出 5N」；阻抗控制是「力隨偏差而定」，它同時管位置和力，用剛度參數在兩者之間滑動。而且——<b>只有力矩控制介面的手臂才能做阻抗控制</b>。學生常想在只有位置介面的便宜伺服馬達（例如 SO-100 的 STS3215）上做阻抗控制，硬體上就不可能（只能做很粗糙的導納近似）。</div>
+
+<h3>7. ros2_control：把上面這些放進 ROS2 的地方</h3>
+<p><b>它解決什麼問題：</b>你不會想為每一台機器人重寫一次控制迴圈。ros2_control 是一個標準框架：<b>硬體怎麼接</b>（hardware interface）和<b>怎麼控</b>（controller）分開，換機器人只換前者，換控制策略只換後者。MoveIt2 規劃出來的軌跡，最後就是交給 ros2_control 的 controller 去執行。</p>
+<h4>四個必須記住的角色</h4>
+<table>
+<tr><th>角色</th><th>做什麼</th><th>比喻</th></tr>
+<tr><td><code>controller_manager</code></td><td>唯一的主程式（那個 real-time loop）。負責載入／啟動／停止 controller，並在每個週期呼叫 read() → update() → write()。</td><td>工廠廠長，敲鐘決定每個節拍誰做事。</td></tr>
+<tr><td><code>hardware_interface</code></td><td>你為自己機器人寫的插件。宣告「我提供哪些 <b>state_interface</b>（能讀：position/velocity/effort）和哪些 <b>command_interface</b>（能寫：position/velocity/effort）」。在 URDF 的 <code>&lt;ros2_control&gt;</code> 區塊裡宣告。</td><td>翻譯官，把 USB/CAN/EtherCAT 講成 ROS 聽得懂的話。</td></tr>
+<tr><td><code>resource_manager</code></td><td>管理誰佔用哪個 interface。兩個 controller 不能同時寫同一個關節的 position。</td><td>會議室訂位系統，不准重複預約。</td></tr>
+<tr><td>各種 <code>controller</code></td><td><code>joint_state_broadcaster</code>（把狀態發成 /joint_states，<b>幾乎所有機器人都要開這個</b>）、<code>joint_trajectory_controller</code>（MoveIt2 用的主力）、<code>forward_command_controller</code>／<code>effort_controllers</code>（直接灌值，測試用）、<code>diff_drive_controller</code>（Day 8–11 的 TurtleBot3 就是這個）。</td><td>各科師傅，共用同一套廠房。</td></tr>
+</table>
+<div class="warn"><b>今天最重要的心智連結：</b>「hardware 提供 <b>effort</b> command interface」→ 你才可能做重力補償／阻抗控制。「只提供 <b>position</b> command interface」→ 你只能做位置控制，動力學那些招全部用不上。看一台機器人能不能做 Physical AI 的力控研究，第一件事就是查它的 command interface 有沒有 effort。</div>
+<div class="myth"><b>學生常見誤解：</b>「ros2_control 是 controller，MoveIt2 是另一個 controller，兩者衝突。」不是。MoveIt2 是<b>規劃器</b>，它只產生軌跡然後透過 FollowJointTrajectory action 交給 ros2_control 的 <code>joint_trajectory_controller</code> 執行。兩者是上下游，不是競爭關係。</div>
+
+<h2>💻 可直接複製貼上的指令與程式碼</h2>
+
+<h4>A. 安裝今天需要的東西</h4>
+<pre><code># ros2_control 全家桶（Humble）
+sudo apt update
+sudo apt install -y \
+  ros-humble-ros2-control \
+  ros-humble-ros2-controllers \
+  ros-humble-controller-manager \
+  ros-humble-gazebo-ros2-control \
+  ros-humble-ros2-control-test-assets \
+  ros-humble-joint-state-publisher-gui
+
+# Python 端：模擬與動力學驗證（沿用 Day 12 的環境）
+pip install numpy matplotlib
+pip install roboticstoolbox-python   # 若 Day 12 已裝可跳過
+
+# 確認 ros2 control CLI 有裝到
+source /opt/ros/humble/setup.bash
+ros2 control --help
+</code></pre>
+
+<h4>B. 核心實作：單連桿手臂，三種控制器同場比較</h4>
+<p>這是今天最重要的 30 分鐘。<b>不用 ROS、不用模擬器</b>，純 Python 就能親眼看到「重力補償」和「計算力矩」到底差在哪。存成 <code>day13_control_compare.py</code> 直接跑。</p>
+<pre><code>#!/usr/bin/env python3
+"""
+Day 13: 單連桿手臂（一根均勻桿子繞一端旋轉）三種控制器比較
+動力學： I*theta_dd + b*theta_d + m*g*(l/2)*cos(theta) = tau
+  - I = m*l^2/3     繞端點的轉動慣量（均勻桿）
+  - b*theta_d       黏滯摩擦 F(q_dot)
+  - m*g*(l/2)*cos   重力項 G(q)，theta 從水平量起
+目標：追蹤一條正弦軌跡，看誰的誤差小
+"""
+import numpy as np
+import matplotlib
+matplotlib.use("Agg")          # 無視窗環境也能存圖
+import matplotlib.pyplot as plt
+
+# ---------- 真實物理參數（"真實世界"）----------
+m, l, g, b = 2.0, 0.6, 9.81, 0.25      # kg, m, m/s^2, N*m*s/rad
+I = m * l**2 / 3.0
+
+# ---------- 控制器用的模型（可以故意設成不準，模擬 model error）----------
+m_hat, l_hat, b_hat = 2.0, 0.6, 0.25   # 改成 1.6 / 0.55 可看模型誤差的殺傷力
+I_hat = m_hat * l_hat**2 / 3.0
+
+def G_true(th):  return m * g * (l / 2.0) * np.cos(th)      # 真實重力力矩
+def G_hat(th):   return m_hat * g * (l_hat / 2.0) * np.cos(th)  # 模型估的重力力矩
+
+# ---------- 期望軌跡：從水平開始的正弦擺動 ----------
+A, w = 0.6, 2.0                         # 幅值 rad, 角頻率 rad/s
+def traj(t):
+    return (A * np.sin(w * t),          # theta_d
+            A * w * np.cos(w * t),      # theta_d_dot
+           -A * w * w * np.sin(w * t))  # theta_d_ddot
+
+# ---------- 模擬主迴圈 ----------
+DT, T_END, TAU_MAX = 0.001, 6.0, 40.0   # 1 kHz 控制頻率, 馬達力矩上限 N*m
+
+def simulate(mode, Kp, Kd, Ki=0.0, i_clamp=5.0):
+    th, thd, ei = 0.0, 0.0, 0.0
+    ts, errs, taus = [], [], []
+    for k in range(int(T_END / DT)):
+        t = k * DT
+        th_d, thd_d, thdd_d = traj(t)
+        e, ed = th_d - th, thd_d - thd
+        ei = np.clip(ei + e * DT, -i_clamp, i_clamp)   # 積分項要夾住！anti-windup
+
+        if mode == "pid":
+            # 什麼都不知道，純靠誤差硬幹
+            tau = Kp * e + Kd * ed + Ki * ei
+        elif mode == "pd_grav":
+            # 先把重力撐住，PD 只修剩下的
+            tau = G_hat(th) + Kp * e + Kd * ed
+        elif mode == "computed_torque":
+            # 連想要的加速度都前饋進去
+            tau = I_hat * (thdd_d + Kd * ed + Kp * e) + b_hat * thd + G_hat(th)
+        else:
+            raise ValueError(mode)
+
+        tau = np.clip(tau, -TAU_MAX, TAU_MAX)          # 馬達出得起的力矩是有限的
+
+        # ---- 正向動力學：算真實世界會怎麼動（Euler 積分）----
+        thdd = (tau - b * thd - G_true(th)) / I
+        thd += thdd * DT
+        th  += thd * DT
+
+        ts.append(t); errs.append(e); taus.append(tau)
+    return np.array(ts), np.array(errs), np.array(taus)
+
+# 三者用「同一組」Kp/Kd，才看得出差別來自前饋而不是調參
+runs = {
+    "PID only        ": simulate("pid",             Kp=120.0, Kd=12.0, Ki=40.0),
+    "PD + gravity comp": simulate("pd_grav",        Kp=120.0, Kd=12.0),
+    "Computed torque  ": simulate("computed_torque", Kp=400.0, Kd=40.0),
+}
+# 註：computed torque 的 Kp/Kd 是「誤差方程的係數」而非力矩增益
+#     (Kp=w^2=400 -> w=20 rad/s, Kd=2*zeta*w=40 -> zeta=1 臨界阻尼，不過衝)
+
+print(f"{'controller':<18} {'RMS err(rad)':>13} {'max err(rad)':>13} {'max tau(N*m)':>13}")
+for name, (ts, e, tau) in runs.items():
+    half = len(e) // 2          # 只看後半段（穩態），前半段是啟動暫態
+    print(f"{name:<18} {np.sqrt(np.mean(e[half:]**2)):>13.5f} "
+          f"{np.max(np.abs(e[half:])):>13.5f} {np.max(np.abs(tau)):>13.2f}")
+
+fig, ax = plt.subplots(2, 1, figsize=(9, 7), sharex=True)
+for name, (ts, e, tau) in runs.items():
+    ax[0].plot(ts, e, label=name.strip())
+    ax[1].plot(ts, tau, label=name.strip())
+ax[0].set_ylabel("tracking error (rad)"); ax[0].legend(); ax[0].grid(alpha=.3)
+ax[0].axhline(0, color="k", lw=.8)
+ax[1].set_ylabel("torque (N*m)"); ax[1].set_xlabel("time (s)")
+ax[1].legend(); ax[1].grid(alpha=.3)
+plt.tight_layout(); plt.savefig("day13_compare.png", dpi=110)
+print("\n圖已存成 day13_compare.png")
+</code></pre>
+<div class="warn"><b>你應該看到的結果：</b>PID 的誤差是一條偏離 0 的波浪（重力一直在拉，積分項追不上變化）；PD+重力補償的誤差明顯縮小且對稱；計算力矩的誤差幾乎貼在 0。<br>
+<b>接著做這個實驗（重要）</b>：把 <code>m_hat</code> 改成 <code>1.4</code>（模型比實際輕 30%，模擬你 URDF 的 inertial 填錯），再跑一次。你會看到計算力矩的優勢大幅縮水——這就是上面那個「模型不準時計算力矩會反過來害你」的活教材，也是 Day 19 Sim2Real gap 的預告。</div>
+
+<h4>C. 用 Robotics Toolbox 看真實 7 軸手臂的 M(q) 和 G(q)</h4>
+<pre><code>#!/usr/bin/env python3
+"""看一支真實手臂的動力學各項有多大，建立數量級直覺"""
+import numpy as np
+import roboticstoolbox as rtb
+
+robot = rtb.models.DH.Panda()          # Franka Panda，7 軸
+q  = robot.qr                          # 一個 ready 姿勢
+qd = np.zeros(7)
+qdd = np.zeros(7)
+
+print("=== G(q)：光是撐住自己需要的力矩 (N*m) ===")
+print(np.round(robot.gravload(q), 3))
+
+print("\n=== M(q)：慣量矩陣（看對角線大小與非對角的耦合）===")
+np.set_printoptions(precision=3, suppress=True)
+print(robot.inertia(q))
+
+print("\n=== 同一支手臂，換姿勢後 G(q) 完全不同 ===")
+for name, qq in [("qr (ready)", robot.qr), ("qz (全零/伸直)", robot.qz)]:
+    print(f"{name:<16} |G| = {np.linalg.norm(robot.gravload(qq)):.3f} N*m")
+
+print("\n=== 逆向動力學 rne()：要達到指定 q,qd,qdd 需要的 tau ===")
+qd_fast = np.ones(7) * 1.5             # 每個關節 1.5 rad/s
+qdd_fast = np.ones(7) * 2.0
+tau_static  = robot.rne(q, np.zeros(7), np.zeros(7))   # 只有重力
+tau_dynamic = robot.rne(q, qd_fast, qdd_fast)          # 加上 M 和 C 的貢獻
+print("靜止時 tau :", np.round(tau_static, 2))
+print("快速時 tau :", np.round(tau_dynamic, 2))
+print("差額(M+C的份):", np.round(tau_dynamic - tau_static, 2))
+</code></pre>
+<p>看完你會有一個關鍵直覺：<b>靜止時的力矩幾乎全部是重力</b>，這就是為什麼重力補償投報率最高。</p>
+
+<h4>D. ros2_control 實機操作：把 controller 叫出來看</h4>
+<pre><code># 用官方測試資產跑一個假的 ros2_control 系統（不需要真機器人）
+source /opt/ros/humble/setup.bash
+
+# 終端 1：起一個範例系統（rrbot：兩軸教學手臂）
+ros2 launch ros2_control_demo_example_1 view_robot.launch.py   # 若有裝 demo 套件
+#（沒裝 demo 也沒關係，下面的指令在 Day 15 MoveIt2 demo 上一樣適用）
+
+# 終端 2：今天要背下來的四條診斷指令
+ros2 control list_controllers                 # 誰載入了、狀態是 active 還是 inactive
+ros2 control list_hardware_interfaces         # 有哪些 state / command interface，被誰佔用
+ros2 control list_controller_types            # 系統裡可用的 controller 種類
+ros2 control list_hardware_components         # hardware plugin 有沒有成功載入
+
+# 手動載入 / 啟動 / 停止（除錯時很常用）
+ros2 control load_controller joint_state_broadcaster
+ros2 control set_controller_state joint_state_broadcaster active
+ros2 control switch_controllers --deactivate joint_trajectory_controller \
+                                --activate forward_position_controller
+
+# 直接灌一個關節命令（測試 hardware 有沒有通，繞過所有規劃器）
+ros2 topic pub -1 /forward_position_controller/commands \
+  std_msgs/msg/Float64MultiArray "{data: [0.5, -0.3]}"
+</code></pre>
+
+<h4>E. 一份看得懂的 controller YAML（含 PID 欄位）</h4>
+<pre><code># config/my_arm_controllers.yaml
+controller_manager:
+  ros__parameters:
+    update_rate: 500          # Hz，控制迴圈頻率。力矩控制建議 >= 500，位置控制 100 也行
+
+    joint_state_broadcaster:  # 幾乎所有機器人都要開，否則 /joint_states 是空的、rviz 顯示不出來
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+    arm_trajectory_controller: # MoveIt2 的執行端
+      type: joint_trajectory_controller/JointTrajectoryController
+
+    arm_effort_controller:     # 力矩直灌，做重力補償實驗時用
+      type: effort_controllers/JointGroupEffortController
+
+arm_trajectory_controller:
+  ros__parameters:
+    joints: [joint1, joint2, joint3, joint4, joint5, joint6]
+    command_interfaces: [position]        # 硬體吃什麼就寫什麼
+    state_interfaces:  [position, velocity]
+    allow_partial_joints_goal: false
+    open_loop_control: false
+
+    # 容忍度：超過就會回報 GOAL_TOLERANCE_VIOLATED / PATH_TOLERANCE_VIOLATED
+    constraints:
+      stopped_velocity_tolerance: 0.02
+      goal_time: 0.6                     # 允許比軌跡規定時間多花 0.6 秒
+      joint1: {trajectory: 0.15, goal: 0.05}   # 過程容忍 / 終點容忍（rad）
+      joint2: {trajectory: 0.15, goal: 0.05}
+
+    # 若 command_interface 是 effort，這裡才需要 PID
+    gains:
+      joint1: {p: 120.0, i: 1.0, d: 12.0, i_clamp: 5.0, ff_velocity_scale: 0.0}
+      joint2: {p: 120.0, i: 1.0, d: 12.0, i_clamp: 5.0, ff_velocity_scale: 0.0}
+      # i_clamp 就是上面講的 anti-windup 上限，別留 0（等於關掉 I）也別留超大值
+
+arm_effort_controller:
+  ros__parameters:
+    joints: [joint1, joint2, joint3, joint4, joint5, joint6]
+    interface_name: effort
+</code></pre>
+
+<h4>F. URDF 裡的 ros2_control 區塊（決定你能不能做力控）</h4>
+<pre><code>&lt;!-- 加在 URDF/xacro 的 &lt;robot&gt; 裡面 --&gt;
+&lt;ros2_control name="MyArmSystem" type="system"&gt;
+  &lt;hardware&gt;
+    &lt;!-- 模擬用 mock 硬體：不用真機也能測整條 pipeline --&gt;
+    &lt;plugin&gt;mock_components/GenericSystem&lt;/plugin&gt;
+    &lt;param name="calculate_dynamics"&gt;true&lt;/param&gt;
+  &lt;/hardware&gt;
+
+  &lt;joint name="joint1"&gt;
+    &lt;command_interface name="position"&gt;
+      &lt;param name="min"&gt;-3.14&lt;/param&gt;
+      &lt;param name="max"&gt;3.14&lt;/param&gt;
+    &lt;/command_interface&gt;
+    &lt;command_interface name="effort"/&gt;   &lt;!-- 有這行才能做重力補償／阻抗控制 --&gt;
+    &lt;state_interface name="position"&gt;
+      &lt;param name="initial_value"&gt;0.0&lt;/param&gt;
+    &lt;/state_interface&gt;
+    &lt;state_interface name="velocity"/&gt;
+    &lt;state_interface name="effort"/&gt;
+  &lt;/joint&gt;
+&lt;/ros2_control&gt;
+</code></pre>
+<div class="warn"><b>joint 名稱三處必須完全一致</b>：URDF 的 <code>&lt;joint name=&gt;</code>、<code>&lt;ros2_control&gt;</code> 區塊的 joint、controller YAML 的 <code>joints:</code> 清單。差一個字元 controller 就起不來，而錯誤訊息不會直接說「名字打錯」。</div>
+
+<h2>🔗 今日指定資源（依序看，共約 100 分鐘）</h2>
+<ol>
+<li><b>Modern Robotics（Kevin Lynch, Northwestern）· Chapter 8 影片 8.1–8.3「Dynamics of Open Chains」</b>——只看 8.1（Lagrangian formulation 概念）與 8.2（動力學方程各項意義）。<b>跳過所有推導</b>，你只需要「知道每一項在算什麼」。搭配教科書 Chapter 8.1 前 6 頁。</li>
+<li><b>Brian Douglas「Control System Lectures」· PID Control 那一集（約 12 分鐘）</b>——全 YouTube 講 PID 最好的一支。看完你要能對學生口頭解釋 P/I/D 各自像什麼。若還有時間，接著看他的「Gain and Phase Margins」建立震盪的直覺。</li>
+<li><b>Articulated Robotics · 「ros2_control」系列（Josh Newans）</b>——他的 ros2_control 講解是全網最白話的，重點看「hardware interface 與 controller 的分工」那一集。你會第一次真正看懂 command_interface / state_interface。</li>
+<li><b>ros2_control 官方文件（Humble）</b>——只讀三節：<code>Getting Started</code> 的架構圖、<code>ros2_controllers</code> 裡 <code>joint_trajectory_controller</code> 的 Parameters 頁、以及 <code>Hardware Components</code> 的 read/write 生命週期。文件網址：<code>control.ros.org</code>（切到 Humble 分支）。</li>
+</ol>
+
+<h2>✅ 今日驗收清單</h2>
+<ul class="chk">
+<li>跑完 <code>day13_control_compare.py</code>，能講出「為什麼 PD+重力補償的誤差比純 PID 小」，並且看過 <code>day13_compare.png</code> 兩張圖。</li>
+<li>把 <code>m_hat</code> 改成 1.4 再跑一次，記錄計算力矩的 RMS 誤差變成多少倍，能說出「模型誤差會讓前饋控制器失去優勢」。</li>
+<li>不看筆記，在紙上寫出 <code>M(q)q̈ + C(q,q̇)q̇ + G(q) = τ</code> 並用一句話說明每一項的物理意義。</li>
+<li>在任一個 ros2_control 系統上跑出 <code>ros2 control list_controllers</code> 和 <code>list_hardware_interfaces</code>，看得懂輸出的 active/inactive 與「哪個 interface 被哪個 controller 佔用」。</li>
+<li>能用一句話回答：「一支只有 position command_interface 的手臂，能做阻抗控制嗎？為什麼？」</li>
+</ul>
+
+<h2>🎓 助教筆記：今天這個主題，學生一定會來問的 6 件事</h2>
+
+<h4>坑 1｜「Could not contact service /controller_manager/list_controllers」</h4>
+<p><b>症狀：</b>執行 <code>ros2 control list_controllers</code> 直接報這一行，或 spawner 卡住 timeout。<br>
+<b>真正原因（依機率排序）：</b>(1) controller_manager 根本沒起來（launch 檔錯誤，去看終端最上面的紅字）；(2) controller_manager 起在別的 namespace，要用 <code>-c /my_ns/controller_manager</code>；(3) <code>ROS_DOMAIN_ID</code> 兩個終端不一樣（Day 24 會再遇到一次）。<br>
+<b>診斷指令：</b></p>
+<pre><code>ros2 node list | grep controller_manager     # 節點在不在
+ros2 service list | grep controller_manager  # service 有沒有起
+echo $ROS_DOMAIN_ID                          # 兩個終端要一樣
+ros2 control list_controllers -c /控制器命名空間/controller_manager
+</code></pre>
+
+<h4>坑 2｜手臂在 Gazebo 裡直接垂下去 / 瘋狂抖動</h4>
+<p><b>症狀：</b>模擬一開就整支手臂軟趴趴掉到地上，或高頻震動到爆炸。<br>
+<b>原因：</b>垂下去＝沒有任何 controller 在 active（<code>list_controllers</code> 會顯示 inactive 或空的），或 command_interface 是 effort 但 gains 全為 0；抖動＝Kp 太大、或 <code>update_rate</code> 太低（力矩控制用 100 Hz 一定抖）、或 URDF 的 <code>&lt;inertial&gt;</code> 質量／慣量填得不合物理（例如 mass=0.001 但 inertia=1.0）。<br>
+<b>診斷順序：</b>先 <code>ros2 control list_controllers</code> 看有沒有 active → 看 YAML 的 <code>update_rate</code> → 用 <code>check_urdf</code> 和目視檢查每個 link 的 inertial → 把 Kp 砍半看抖動是否減輕（會減輕就是 gains 問題）。</p>
+
+<h4>坑 3｜「Trajectory message contains waypoints that are not strictly increasing in time」</h4>
+<p><b>症狀：</b>送軌跡給 joint_trajectory_controller 被直接拒絕。<br>
+<b>原因：</b>學生自己手刻 JointTrajectory 訊息時，<code>time_from_start</code> 兩個點相同（常見：都填 0，或都填 1.0），或第一個點就填 0。<br>
+<b>解法：</b>time_from_start 必須嚴格遞增且第一點 &gt; 0。這是學生手寫軌跡時 100% 會踩的一坑，Day 16 用 MoveIt2 就不會遇到（規劃器會幫你算），所以要提醒他們「手刻軌跡只用於測試」。</p>
+
+<h4>坑 4｜「Joint 'xxx' not found in hardware interfaces」/ controller 載入失敗</h4>
+<p><b>症狀：</b>controller 一直停在 <code>unconfigured</code>，log 說找不到某個 interface。<br>
+<b>原因：</b>三處 joint 名稱不一致（URDF / <code>&lt;ros2_control&gt;</code> / YAML），或 YAML 寫 <code>command_interfaces: [effort]</code> 但 URDF 裡只宣告了 position。<br>
+<b>診斷指令：</b></p>
+<pre><code># 看硬體「實際」提供了什麼，這是唯一的事實來源
+ros2 control list_hardware_interfaces
+# 輸出範例，注意 [available] / [claimed] 標記：
+#   command interfaces
+#         joint1/position [available] [claimed]
+#         joint1/effort   [available] [unclaimed]   <- YAML 想要 effort 就要看到這行
+# 檢查 xacro 展開後的 URDF 到底長什麼樣（學生常改了 xacro 卻沒重 build）
+xacro src/my_robot/urdf/robot.urdf.xacro > /tmp/out.urdf && grep -A3 ros2_control /tmp/out.urdf
+</code></pre>
+
+<h4>坑 5｜「調 PID 調到崩潰」/ 學生問「Kp 要設多少？」</h4>
+<p><b>怎麼回答：</b>不要給數字，給流程。(1) 先把 I 設 0、D 設 0，Kp 從小往上加到「會動、輕微過衝」；(2) 加 D 壓過衝，D 通常是 Kp 的 1/10 量級起跳；(3) 若仍有固定的殘留誤差，才小量加 I 並<b>務必設 i_clamp</b>；(4) 若手臂在某姿勢好、某姿勢爛，那不是 PID 的問題，是 <b>M(q) 和 G(q) 隨姿勢改變</b>——去做重力補償，不要繼續調 PID。第 (4) 點是今天最值得教給學生的判斷。</p>
+
+<h4>坑 6｜「我在 SO-100／便宜伺服上做不了阻抗控制」</h4>
+<p><b>症狀：</b>學生看完論文想做 compliant control，發現硬體不給力矩介面。<br>
+<b>怎麼回答：</b>誠實講硬體限制：STS3215 這類 smart servo 只給位置（頂多電流讀值），做不了真正的關節力矩控制。折衷方案：(a) 用電流讀值做粗略的碰撞偵測後停止；(b) 降低伺服的 P gain 讓它「軟」一些（機械上的順從）；(c) 想做真力控就要 Franka / UR / 或帶 torque sensor 的手臂。<b>提前講清楚可以省掉學生兩週的白工</b>——這正是 Day 22–23 Imitation Learning 為什麼多用位置層 policy 的硬體原因。</p>
+
+<h2>📮 回報格式</h2>
+<div class="meta-box">
+今天結束時請回覆我：
+<ol>
+<li><b>完成了什麼</b>——三種控制器的 RMS 誤差數字各是多少？<code>m_hat=1.4</code> 之後計算力矩變成多少？</li>
+<li><b>卡在哪</b>——請貼<b>完整</b>錯誤訊息（含前後 5 行，不要只寫「跑不起來」）</li>
+<li><b>沒懂的概念</b>——特別是「計算力矩為什麼能讓誤差方程變線性」、「阻抗 vs 導納」這兩個，沒懂很正常，講出來我換個講法</li>
+<li><b>實際花的時間</b>——各時段實際花多久，我用來調整 Day 14 的份量</li>
+</ol>
+</div>
+
+<footer>
+Day 13 / 30 · Physical AI 助教特訓 · 明日預告：Day 14 第二週複習 + 用 nav2_simple_commander 寫多點巡航<br>
+<a href="index.html">← 回索引</a>
+</footer>
+
+</div></body>
+</html>
