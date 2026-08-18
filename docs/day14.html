@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Day 14｜第二週複習 + Nav2 多點巡航（nav2_simple_commander BasicNavigator）</title>
+<style>
+:root{color-scheme:light}
+*{box-sizing:border-box}
+body{margin:0;background:#fcfcfb;color:#2e2c27;
+font-family:-apple-system,"Segoe UI","PingFang TC","Microsoft JhengHei",sans-serif;
+line-height:1.75;font-size:16px}
+.wrap{max-width:900px;margin:0 auto;padding:44px 22px 90px}
+h1{font-family:Georgia,"Noto Serif TC",serif;font-size:30px;margin:0 0 6px;font-weight:600;line-height:1.35}
+h2{font-size:21px;margin:52px 0 14px;padding-bottom:8px;border-bottom:2px solid #e4e3dc;font-weight:600}
+h3{font-size:17px;margin:32px 0 8px;font-weight:600;color:#1f1d19}
+h4{font-size:15px;margin:18px 0 6px;font-weight:600;color:#55524a}
+.meta{color:#6b6a63;font-size:14px;margin:0 0 28px}
+.badge{display:inline-block;background:#eceae1;color:#55524a;border-radius:4px;
+padding:2px 9px;font-size:12.5px;margin-right:6px;letter-spacing:.03em}
+.goal{background:#f3f6f2;border-left:4px solid #7a9b6e;padding:14px 18px;border-radius:0 6px 6px 0;margin:20px 0}
+.box{background:#f8f8f5;border:1px solid #e4e3dc;border-radius:8px;padding:14px 18px;margin:16px 0}
+.warn{background:#fdf6ee;border-left:4px solid #d09a4e;padding:12px 16px;border-radius:0 6px 6px 0;margin:14px 0}
+.mis{background:#fbf2f2;border-left:4px solid #c07a75;padding:12px 16px;border-radius:0 6px 6px 0;margin:14px 0}
+.mis b,.warn b{display:block;margin-bottom:2px}
+pre{background:#1e1f22;color:#e6e6e6;border-radius:8px;padding:16px 18px;overflow-x:auto;
+font-size:13.5px;line-height:1.6;margin:14px 0}
+pre code{font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace;white-space:pre}
+code{background:#eceae1;border-radius:3px;padding:1px 5px;font-size:14px;
+font-family:"SFMono-Regular",Consolas,monospace}
+pre code{background:none;padding:0;font-size:13.5px}
+table{border-collapse:collapse;width:100%;margin:16px 0;font-size:14.5px}
+th,td{border:1px solid #e4e3dc;padding:8px 11px;text-align:left;vertical-align:top}
+th{background:#f3f2ec;font-weight:600}
+ul,ol{padding-left:24px}
+li{margin:5px 0}
+.ck li{list-style:none;margin:9px 0}
+.ck{padding-left:2px}
+.ck input{margin-right:9px;transform:scale(1.15)}
+.sched td:first-child{white-space:nowrap;font-weight:600;width:120px}
+footer{margin-top:60px;padding-top:18px;border-top:1px solid #e4e3dc;font-size:13.5px;color:#6b6a63}
+footer a{color:#5a7f4e}
+.sym{font-size:14.5px}
+.sym td:first-child{white-space:nowrap;font-family:Consolas,monospace;width:90px}
+@media(max-width:640px){.wrap{padding:30px 15px 70px}h1{font-size:24px}pre{font-size:12.5px}}
+</style>
+</head>
+<body><div class="wrap">
+
+<h1>Day 14｜第二週複習 + Nav2 多點巡航（nav2_simple_commander BasicNavigator）</h1>
+<p class="meta">
+<span class="badge">2026-08-18（二）</span>
+<span class="badge">第 2 週 · 收尾日</span>
+<span class="badge">預計 5.5 小時</span><br>
+本週回顧範圍：Day 8 Gazebo/TB3 · Day 9 SLAM · Day 10 Nav2 架構 · Day 11 Nav2 除錯 · Day 12 運動學 · Day 13 動力學與控制
+</p>
+
+<div class="goal">
+<b>今日目標</b><br>
+今天結束時，你要能<b>不看講義，用一張白紙畫出「機器人從按下 Nav2 Goal 到輪子轉動」的完整資料流</b>，
+並且<b>寫得出一支 Python 腳本，讓 TurtleBot3 自動巡航 4 個航點、中途可取消、可查詢剩餘距離、可判斷成功或失敗</b>。
+</div>
+
+<h2>時段安排</h2>
+<table class="sched">
+<tr><th>時段</th><th>內容</th><th>時數</th></tr>
+<tr><td>上午</td><td>第二週知識盤點：六張「自問自答表」＋兩張手繪架構圖（SLAM 更新迴圈、Nav2 資料流）。不開電腦，先用紙筆逼自己回想。</td><td>2.0 h</td></tr>
+<tr><td>下午</td><td>實作 <code>nav2_simple_commander</code> 多點巡航：從最小可跑版本 → 加入取消／逾時／失敗重試 → 包成 ROS2 package 與 launch。</td><td>2.5 h</td></tr>
+<tr><td>晚上</td><td>整理助教筆記（本週 5 個高頻卡點的診斷 SOP）＋自我驗收（下方清單）＋回報。</td><td>1.0 h</td></tr>
+</table>
+
+<h2>Part A · 上午：第二週知識盤點</h2>
+
+<p>複習不是「再看一次筆記」。今天的方法是<b>先閉卷回答，答不出來的才回去翻</b>。
+答不出來的那幾題，就是你當助教時會被學生問倒的那幾題。請誠實。</p>
+
+<h3>A-1　Day 8 回顧：Gazebo 與 TurtleBot3 的四條主幹 Topic</h3>
+
+<p><b>它解決什麼問題：</b>你不可能一開始就用真機練習——撞壞了要修，電池要充，環境不可重現。
+模擬器提供一個<b>可重來、可存檔、可以故意搞壞</b>的世界。而 ROS2 的設計讓「模擬」和「真機」對上層程式而言長得一模一樣：
+只要 Topic 名稱與型別相同，Nav2 根本分不出下面接的是 Gazebo 還是實體 TurtleBot3。這就是 Sim2Real 之所以可行的第一層基礎。</p>
+
+<p><b>比喻：</b>Topic 就像醫院裡的病床監視器。<code>/scan</code> 是眼睛，<code>/odom</code> 是「我自己覺得走了多遠」的體感，
+<code>/tf</code> 是全身骨架的相對位置表，<code>/cmd_vel</code> 是你對肌肉下的命令。醫生（Nav2）只看螢幕、只下醫囑，不在乎病人是真人還是假人模型。</p>
+
+<table>
+<tr><th>Topic</th><th>型別</th><th>誰發布</th><th>誰訂閱</th><th>一句話</th></tr>
+<tr><td><code>/scan</code></td><td>sensor_msgs/LaserScan</td><td>雷射驅動 / Gazebo plugin</td><td>SLAM、Nav2 costmap</td><td>一圈 360 個距離值，含 <code>angle_min</code>、<code>angle_increment</code>、<code>ranges[]</code></td></tr>
+<tr><td><code>/odom</code></td><td>nav_msgs/Odometry</td><td>差速輪驅動</td><td>AMCL、controller</td><td>輪子編碼器積分出來的位置，<b>會漂移</b>，短期準、長期歪</td></tr>
+<tr><td><code>/cmd_vel</code></td><td>geometry_msgs/Twist</td><td>Nav2 controller / teleop</td><td>底盤驅動</td><td>只有 <code>linear.x</code> 與 <code>angular.z</code> 對差速輪有意義</td></tr>
+<tr><td><code>/tf</code></td><td>tf2_msgs/TFMessage</td><td>多個節點各發一段</td><td>幾乎所有節點</td><td>map→odom（AMCL 發）、odom→base_link（里程計發）、base_link→laser（URDF 發）</td></tr>
+</table>
+
+<div class="mis">
+<b>常見誤解：「/odom 不準，那把它關掉直接用 AMCL 就好」</b>
+錯。AMCL 的粒子濾波<b>需要</b> odom 當作預測步（prediction step）的運動模型輸入。沒有 odom，AMCL 每一輪都只能靠雷射盲猜，
+會抖到無法使用。odom 的角色不是「提供正確位置」，而是「提供短時間內可信的位移增量」；長期誤差由 AMCL 用地圖來修正。
+這正是 <code>map → odom → base_link</code> 三層 tf 的存在理由：<b>map→odom 這一段就是「累積漂移的修正量」</b>。
+</div>
+
+<h3>A-2　Day 9 回顧：SLAM 的一句話與一條公式</h3>
+
+<p><b>它解決什麼問題：</b>要導航必須先有地圖，但要畫地圖必須先知道自己在哪——這是一個雞生蛋問題。
+SLAM（Simultaneous Localization and Mapping）就是同時解這兩件事。</p>
+
+<p><b>核心公式（Occupancy Grid 的 log-odds 更新）：</b></p>
+<pre><code>l(m_i | z_{1:t}) = l(m_i | z_{1:t-1}) + inverse_sensor_model(m_i, z_t) - l_0</code></pre>
+<table class="sym">
+<tr><td>l(·)</td><td>log-odds，即 log(p / (1-p))。用它是因為<b>加法比乘法快、而且不會數值下溢</b>；機率連乘幾百次會變成 0。</td></tr>
+<tr><td>m_i</td><td>第 i 個格子（cell）。整張地圖被切成一格一格，每格獨立估計「這裡有障礙物」的機率。</td></tr>
+<tr><td>z_{1:t}</td><td>從開始到現在的所有雷射觀測。</td></tr>
+<tr><td>inverse_sensor_model</td><td>「這一次雷射打到了什麼」轉成的證據量：光束打中的格子 +（更相信有東西），光束穿過的格子 −（更相信是空的）。</td></tr>
+<tr><td>l_0</td><td>先驗值。地圖初始化時全部設成「不知道」，也就是 p = 0.5、l_0 = 0。減掉它是為了不重複計入先驗。</td></tr>
+</table>
+
+<p><b>比喻：</b>每個格子有一個「有障礙物」的信用分數。雷射每掃一次就是一次投票，打到就加分、穿過就扣分。
+掃了幾百次以後，牆壁的格子分數會非常高，空地非常低，沒掃到的地方維持 0（未知，在 rviz2 顯示成灰色）。</p>
+
+<p><b>Loop closure（迴環偵測）：</b>機器人繞了一大圈回到起點，但因為漂移，它以為自己在別的地方，於是把同一面牆畫了兩次（地圖出現「鬼影」/重影）。
+Loop closure 就是認出「我來過這裡」，然後把整條軌跡往回拉平（pose graph optimization）。
+<b>slam_toolbox 的地圖突然「跳一下、變整齊」，那一瞬間就是 loop closure 觸發了。</b></p>
+
+<div class="mis">
+<b>常見誤解：「地圖歪掉是雷射不準」</b>
+九成不是。地圖歪掉的排序原因是：(1) 推車／走路太快，掃描比對跟不上；(2) 原地快速旋轉（旋轉是 SLAM 最難的動作）；
+(3) 走廊、空曠大廳這種<b>幾何特徵不足</b>的環境，掃描長得都一樣，比對無從下手；(4) 才輪到雷射本身。
+給學生的口訣：<b>「慢慢走、少原地轉、多繞經有特徵的角落、記得回到起點閉環」。</b>
+</div>
+
+<h3>A-3　Day 10–11 回顧：Nav2 資料流（今天一定要能默畫）</h3>
+
+<p>請先閉上眼睛講一遍，再看下面對答案。</p>
+
+<pre><code>使用者 / 你的程式
+   │  NavigateToPose action goal（geometry_msgs/PoseStamped）
+   ▼
+[ bt_navigator ]  ← 讀 behavior tree XML，決定「流程」
+   │  它是總指揮，不算路徑、不發速度，只按劇本呼叫下面的人
+   ├─► [ planner_server ]    global costmap + A*/NavFn/Smac → nav_msgs/Path（全域路徑）
+   ├─► [ controller_server ] local costmap + DWB/RPP → geometry_msgs/Twist（/cmd_vel）
+   └─► [ behavior_server ]   卡住時的 recovery：spin / backup / wait / clear costmap
+   ▲
+   │  「我在哪」
+[ amcl ] ── 用 /scan 比對 map，輸出 map→odom 的 tf 修正量
+[ map_server ] ── 提供靜態地圖 /map
+[ costmap_2d ] ── 靜態層 + 障礙層 + 膨脹層，疊出「哪裡不能走」</code></pre>
+
+<h4>五個角色，一句話各記一句</h4>
+<ul>
+<li><b>bt_navigator</b>：導演。只決定「先做什麼、失敗了做什麼」，本身不做計算。</li>
+<li><b>planner_server（全域規劃）</b>：看整張地圖，畫一條從 A 到 B 的路。<b>不管動態障礙、不管機器人現在的速度</b>。</li>
+<li><b>controller_server（區域控制）</b>：只看機器人周圍幾公尺，負責「貼著全域路徑走、同時閃開突然出現的人」，輸出速度指令。</li>
+<li><b>costmap</b>：把地圖變成「代價」。0 = 完全自由、254 = 致命障礙（lethal）、253 = inscribed（機器人中心進去必撞）、255 = unknown。</li>
+<li><b>AMCL</b>：粒子濾波定位。撒一堆「機器人可能在這」的假設點，用雷射比對淘汰不合理的，逐漸收斂。</li>
+</ul>
+
+<div class="warn">
+<b>Day 11 的五大死因，今天再默背一次</b>
+<ol>
+<li><b>tf 沒接起來</b>：<code>map → odom → base_link → laser</code> 斷任一節，Nav2 完全不動且刷 "Timed out waiting for transform"。</li>
+<li><b>初始位姿沒給</b>：AMCL 不知道機器人在哪，粒子散開，機器人原地亂轉。rviz2 要按 <b>2D Pose Estimate</b>。</li>
+<li><b>inflation_radius 太大</b>：門口、走廊整個被膨脹層填滿變成不可通行，planner 回 "Failed to create plan"。</li>
+<li><b>lifecycle 節點沒 activate</b>：節點在但狀態是 unconfigured/inactive，行為像「啟動了卻沒反應」。</li>
+<li><b>模擬時間沒對齊</b>：Gazebo 下每個節點都要 <code>use_sim_time:=true</code>，漏一個就 tf 時間戳對不上。</li>
+</ol>
+</div>
+
+<h4>三行黃金診斷指令（背起來，學生一問就打）</h4>
+<pre><code># 1. tf 樹是否完整？有沒有斷層、有沒有兩個 parent？
+ros2 run tf2_tools view_frames          # 產生 frames.pdf
+ros2 run tf2_ros tf2_echo map base_link # 有數字在跳 = 這段活著
+
+# 2. Nav2 的節點狀態對不對？（unconfigured / inactive / active）
+ros2 lifecycle get /planner_server
+ros2 lifecycle get /controller_server
+ros2 lifecycle get /amcl
+
+# 3. Topic 真的有人在發嗎？Hz 正不正常？
+ros2 topic hz /scan        # TB3 應該約 5～10 Hz
+ros2 topic hz /odom        # 約 20～30 Hz
+ros2 topic echo /cmd_vel   # 導航時應該有值在動</code></pre>
+
+<h3>A-4　Day 12–13 回顧：運動學與控制的三個關鍵詞</h3>
+
+<p><b>FK（順向運動學）</b>：給我每個關節角度 q，算出手爪在空間中的位置與姿態。<b>唯一解，一定算得出來</b>，就是一連串齊次變換矩陣相乘。</p>
+
+<p><b>IK（逆向運動學）</b>：給我手爪想去的位置，回推每個關節該轉幾度。<b>可能無解（超出工作範圍）、可能多解（手肘朝上或朝下都能到）</b>。
+這是為什麼 MoveIt2 要「規劃」而不是「計算」。</p>
+
+<p><b>Jacobian（雅可比矩陣）</b>：連接「關節速度」與「末端速度」的橋樑。</p>
+<pre><code>v = J(q) · q̇</code></pre>
+<table class="sym">
+<tr><td>v</td><td>末端執行器的速度（6 維：三個平移 + 三個旋轉）。</td></tr>
+<tr><td>q̇</td><td>各關節的角速度（n 維，n = 關節數）。</td></tr>
+<tr><td>J(q)</td><td>6×n 矩陣，<b>它的值隨當下姿態 q 改變</b>——這是重點，Jacobian 不是常數。</td></tr>
+</table>
+<p><b>奇異點（singularity）</b>：某些姿態下 J 掉秩（det → 0），意思是「末端有某個方向怎麼動關節都動不出去」。
+反過來，若你要求末端往那個方向動一點點，IK 解出來的關節速度會<b>衝到無限大</b>——真機上表現成手臂突然暴衝。
+<b>比喻：</b>像手臂完全打直時想再往前伸 1 公分，肩肘怎麼轉都辦不到，硬要就只能瘋狂亂扭。</p>
+
+<p><b>動力學方程</b>：</p>
+<pre><code>M(q)·q̈ + C(q, q̇)·q̇ + G(q) = τ</code></pre>
+<table class="sym">
+<tr><td>M(q)</td><td>慣性矩陣。手臂伸得越開，等效慣性越大，越難加速——所以 M 跟姿態有關。</td></tr>
+<tr><td>C(q,q̇)</td><td>科氏力與離心力項。只有在「動起來」時才存在，速度越快影響越大。</td></tr>
+<tr><td>G(q)</td><td>重力項。<b>手臂靜止不動也需要出力，就是在對抗它。</b></td></tr>
+<tr><td>τ</td><td>各關節馬達要輸出的力矩。</td></tr>
+</table>
+
+<div class="mis">
+<b>常見誤解：「PID 調好就夠了，不用管重力補償」</b>
+在低速、輕負載時勉強成立；一旦手臂伸長或抓重物，PID 為了對抗重力必須靠「累積誤差」把 I 項拉起來，
+結果就是<b>穩態下垂 + 動作起步時暴衝（integral windup）</b>。
+正確做法是把 G(q) 當前饋（feedforward）直接補進去，讓 PID 只需要處理「模型算不準的殘差」。
+這就是 computed torque control 的核心思想：<b>先用模型算大部分，PID 只收尾。</b>
+</div>
+
+<h2>Part B · 下午：Nav2 多點巡航實作</h2>
+
+<p><b>它解決什麼問題：</b>到目前為止你都是在 rviz2 上用滑鼠點 2D Goal Pose。
+但實務上（送餐機器人、巡邏機器人、課程專題）需要的是<b>程式自動依序走訪多個點、失敗要能處理、隨時可以叫停</b>。
+<code>nav2_simple_commander</code> 就是 Nav2 官方提供的 Python 包裝，把底層繁瑣的 action client 收成幾個好懂的方法。</p>
+
+<p><b>比喻：</b>直接寫 action client 像自己組電腦（要處理 goal handle、feedback callback、result future、cancel）；
+<code>BasicNavigator</code> 像買品牌機——功能少一點，但 90% 的課堂需求它都夠用，而且學生看得懂。</p>
+
+<h3>B-1　BasicNavigator 的核心方法</h3>
+<table>
+<tr><th>方法</th><th>作用</th><th>注意</th></tr>
+<tr><td><code>waitUntilNav2Active()</code></td><td>擋住程式，直到 Nav2 所有 lifecycle 節點都 active</td><td><b>一定要呼叫</b>，否則太早送 goal 會直接被丟掉</td></tr>
+<tr><td><code>setInitialPose(pose)</code></td><td>程式化地給 AMCL 初始位姿，等同 rviz2 的 2D Pose Estimate</td><td>用 slam_toolbox 即時建圖時<b>不要</b>呼叫</td></tr>
+<tr><td><code>goToPose(pose)</code></td><td>送單一目標點，非阻塞</td><td>送完要自己輪詢 <code>isTaskComplete()</code></td></tr>
+<tr><td><code>followWaypoints(poses)</code></td><td>丟一整串航點，Nav2 內部自己依序走</td><td>簡單但<b>失敗時無法針對單點重試</b></td></tr>
+<tr><td><code>isTaskComplete()</code></td><td>問「這次任務結束了沒」</td><td>回 False 時<b>順便會更新 feedback</b>，所以一定要在迴圈裡呼叫</td></tr>
+<tr><td><code>getFeedback()</code></td><td>取得剩餘距離、已花時間、recovery 次數</td><td>欄位名稱是 <code>distance_remaining</code>、<code>navigation_time</code></td></tr>
+<tr><td><code>getResult()</code></td><td>回傳 TaskResult.SUCCEEDED / CANCELED / FAILED</td><td><b>必須檢查</b>，不要假設一定成功</td></tr>
+<tr><td><code>cancelTask()</code></td><td>中止當前任務</td><td>逾時保護就靠它</td></tr>
+</table>
+
+<h3>B-2　最小可跑版本（先讓它動起來）</h3>
+
+<p>開三個終端機。<b>每個終端機都要先 source。</b></p>
+<pre><code># 終端機 1：Gazebo + TurtleBot3
+export TURTLEBOT3_MODEL=burger
+source /opt/ros/humble/setup.bash
+ros2 launch turtlebot3_gazebo turtlebot3_world.launch.py
+
+# 終端機 2：Nav2（用 Day 9 存下來的地圖）
+export TURTLEBOT3_MODEL=burger
+source /opt/ros/humble/setup.bash
+ros2 launch turtlebot3_navigation2 navigation2.launch.py \
+    use_sim_time:=True \
+    map:=$HOME/maps/my_map.yaml
+
+# 終端機 3：確認 nav2_simple_commander 有裝
+sudo apt install ros-humble-nav2-simple-commander -y</code></pre>
+
+<div class="warn">
+<b>先在 rviz2 按一次 2D Pose Estimate 對齊機器人位置。</b>
+初始位姿沒給，等一下腳本送出去的 goal 一定失敗——這是 Day 11 五大死因的第 2 條，今天會再遇到一次。
+</div>
+
+<p>建立檔案 <code>~/patrol_min.py</code>：</p>
+<pre><code>#!/usr/bin/env python3
+"""最小可跑版本：走訪 4 個航點。"""
+import rclpy
+from geometry_msgs.msg import PoseStamped
+from nav2_simple_commander.robot_navigator import BasicNavigator, TaskResult
+
+
+def make_pose(nav, x, y, yaw_deg=0.0):
+    """把 (x, y, yaw) 包成 Nav2 要的 PoseStamped。
+
+    Nav2 的 orientation 是 quaternion（四元數），不是角度。
+    這裡只繞 Z 軸轉，所以 z = sin(yaw/2)、w = cos(yaw/2)，x = y = 0。
+    """
+    import math
+    p = PoseStamped()
+    p.header.frame_id = 'map'                      # 一定是 map，不是 odom
+    p.header.stamp = nav.get_clock().now().to_msg()
+    p.pose.position.x = float(x)
+    p.pose.position.y = float(y)
+    p.pose.orientation.z = math.sin(math.radians(yaw_deg) / 2.0)
+    p.pose.orientation.w = math.cos(math.radians(yaw_deg) / 2.0)
+    return p
+
+
+def main():
+    rclpy.init()
+    nav = BasicNavigator()
+
+    # 1) 給初始位姿。若你是用 slam_toolbox 即時建圖，請把這三行註解掉。
+    init = make_pose(nav, 0.0, 0.0, 0.0)
+    nav.setInitialPose(init)
+
+    # 2) 等 Nav2 全部節點 active。少了這行，goal 會被丟掉而且沒有錯誤訊息。
+    nav.waitUntilNav2Active()
+
+    # 3) 航點清單。請換成你自己地圖上的合法座標
+    #    （在 rviz2 上把滑鼠移到目標處，左下角會顯示 x/y）
+    waypoints = [
+        make_pose(nav,  1.5,  0.0,   0),
+        make_pose(nav,  1.5,  1.5,  90),
+        make_pose(nav,  0.0,  1.5, 180),
+        make_pose(nav,  0.0,  0.0, 270),
+    ]
+
+    for i, wp in enumerate(waypoints, start=1):
+        nav.get_logger().info(f'前往航點 {i}/{len(waypoints)}')
+        nav.goToPose(wp)
+
+        while not nav.isTaskComplete():
+            fb = nav.getFeedback()
+            if fb:
+                nav.get_logger().info(
+                    f'  剩餘距離 {fb.distance_remaining:.2f} m')
+
+        result = nav.getResult()
+        if result == TaskResult.SUCCEEDED:
+            nav.get_logger().info(f'航點 {i} 抵達')
+        elif result == TaskResult.CANCELED:
+            nav.get_logger().warn(f'航點 {i} 被取消')
+            break
+        else:
+            nav.get_logger().error(f'航點 {i} 失敗')
+
+    nav.get_logger().info('巡航結束')
+    nav.lifecycleShutdown()
+    rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()</code></pre>
+
+<pre><code>chmod +x ~/patrol_min.py
+source /opt/ros/humble/setup.bash
+python3 ~/patrol_min.py</code></pre>
+
+<div class="mis">
+<b>常見誤解：「isTaskComplete() 只是個查詢，可以不放在迴圈裡」</b>
+錯得很致命。<code>isTaskComplete()</code> 內部會 spin 一次 node，<b>feedback 只有在這時候才會被更新</b>。
+如果你寫成 <code>time.sleep(1)</code> 然後才呼叫一次，feedback 永遠是 None，而且 action 的通訊會卡住。
+規則：<b>「while not nav.isTaskComplete():」這行不能改成別的等待方式。</b>
+</div>
+
+<h3>B-3　加上逾時、重試、優雅取消（可以拿去用在專題上的版本）</h3>
+
+<p>上面的版本有三個現實問題：卡住會無限等、失敗就放棄、Ctrl-C 時機器人還在跑。修掉它們：</p>
+
+<pre><code>#!/usr/bin/env python3
+"""巡航強化版：逾時保護 + 失敗重試 + Ctrl-C 安全停車。"""
+import math
+import signal
+import sys
+import rclpy
+from geometry_msgs.msg import PoseStamped
+from nav2_simple_commander.robot_navigator import BasicNavigator, TaskResult
+
+TIMEOUT_SEC = 90.0   # 單一航點最長容忍時間，超過就取消
+MAX_RETRY = 2        # 每個航點最多重試次數
+
+
+def make_pose(nav, x, y, yaw_deg=0.0):
+    p = PoseStamped()
+    p.header.frame_id = 'map'
+    p.header.stamp = nav.get_clock().now().to_msg()
+    p.pose.position.x = float(x)
+    p.pose.position.y = float(y)
+    p.pose.orientation.z = math.sin(math.radians(yaw_deg) / 2.0)
+    p.pose.orientation.w = math.cos(math.radians(yaw_deg) / 2.0)
+    return p
+
+
+def go_once(nav, wp, idx):
+    """送一次 goal，回傳 TaskResult。內含逾時保護。"""
+    nav.goToPose(wp)
+    while not nav.isTaskComplete():
+        fb = nav.getFeedback()
+        if fb is None:
+            continue
+        # Duration msg 轉秒：sec 是整數秒，nanosec 是奈秒
+        elapsed = fb.navigation_time.sec + fb.navigation_time.nanosec * 1e-9
+        if elapsed > TIMEOUT_SEC:
+            nav.get_logger().warn(
+                f'航點 {idx} 超過 {TIMEOUT_SEC:.0f} 秒，主動取消')
+            nav.cancelTask()
+            # 取消是非同步的，要等它真的收工
+            while not nav.isTaskComplete():
+                pass
+            return TaskResult.CANCELED
+    return nav.getResult()
+
+
+def main():
+    rclpy.init()
+    nav = BasicNavigator()
+
+    # Ctrl-C 時不要讓機器人保持在移動狀態
+    def on_sigint(signum, frame):
+        nav.get_logger().warn('收到 Ctrl-C，取消導航中…')
+        nav.cancelTask()
+        nav.lifecycleShutdown()
+        rclpy.shutdown()
+        sys.exit(0)
+    signal.signal(signal.SIGINT, on_sigint)
+
+    nav.setInitialPose(make_pose(nav, 0.0, 0.0, 0.0))
+    nav.waitUntilNav2Active()
+
+    waypoints = [
+        make_pose(nav,  1.5,  0.0,   0),
+        make_pose(nav,  1.5,  1.5,  90),
+        make_pose(nav,  0.0,  1.5, 180),
+        make_pose(nav,  0.0,  0.0, 270),
+    ]
+
+    stats = {'ok': 0, 'fail': 0}
+    for i, wp in enumerate(waypoints, start=1):
+        for attempt in range(1, MAX_RETRY + 2):     # 第 1 次 + MAX_RETRY 次重試
+            nav.get_logger().info(
+                f'航點 {i}/{len(waypoints)}（第 {attempt} 次嘗試）')
+            result = go_once(nav, wp, i)
+
+            if result == TaskResult.SUCCEEDED:
+                nav.get_logger().info(f'✔ 航點 {i} 抵達')
+                stats['ok'] += 1
+                break
+
+            nav.get_logger().warn(f'✘ 航點 {i} 結果：{result}')
+            if attempt > MAX_RETRY:
+                stats['fail'] += 1
+                nav.get_logger().error(f'航點 {i} 放棄，跳過')
+            else:
+                # 重試前把 costmap 上的殘留障礙清掉，這是很有效的一招
+                nav.clearAllCostmaps()
+
+    nav.get_logger().info(
+        f"巡航結束：成功 {stats['ok']} 點、失敗 {stats['fail']} 點")
+    nav.lifecycleShutdown()
+    rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()</code></pre>
+
+<div class="box">
+<b>為什麼重試前要 <code>clearAllCostmaps()</code>？</b><br>
+Costmap 的障礙層有記憶：一個人走過去被雷射掃到，會在 costmap 上留下障礙標記，
+即使人已經離開，只要沒有雷射光束「穿過」那格把它清掉（raytrace clearing），標記就會殘留。
+專題現場最常見的「明明沒東西擋，機器人就是說 planner failed」，八成是這個。
+清掉 costmap 再試一次，通常就過了。
+</div>
+
+<h3>B-4　包成 package（讓它能被 launch）</h3>
+<pre><code>cd ~/ros2_ws/src
+ros2 pkg create --build-type ament_python patrol_demo \
+    --dependencies rclpy geometry_msgs nav2_simple_commander
+
+# 把腳本放進去
+cp ~/patrol_min.py ~/ros2_ws/src/patrol_demo/patrol_demo/patrol_node.py</code></pre>
+
+<p>編輯 <code>~/ros2_ws/src/patrol_demo/setup.py</code>，在 <code>entry_points</code> 加入：</p>
+<pre><code>entry_points={
+    'console_scripts': [
+        'patrol = patrol_demo.patrol_node:main',
+    ],
+},</code></pre>
+
+<pre><code>cd ~/ros2_ws
+colcon build --packages-select patrol_demo --symlink-install
+source install/setup.bash
+ros2 run patrol_demo patrol</code></pre>
+
+<div class="warn">
+<b><code>--symlink-install</code> 為什麼重要</b><br>
+沒有它，<code>colcon build</code> 是把 Python 檔<b>複製</b>到 install/，你改了原始碼卻沒重 build，跑的還是舊版——
+「我明明改了程式為什麼沒反應」的頭號原因。加了它，install/ 裡放的是符號連結，改完直接跑就生效。
+</div>
+
+<h2>今日指定資源</h2>
+<ol>
+<li><b>Nav2 官方文件 — Navigating with a Physical Turtlebot3 / Simple Commander API</b>：
+<code>docs.nav2.org</code> 的「Tutorials → (Advanced) Using the Simple Commander API」與「Navigation Concepts」兩節。
+今天只讀這兩節就好，尤其把 Simple Commander 那頁的完整範例對照你自己寫的版本，看官方多做了什麼。</li>
+<li><b>Articulated Robotics（YouTube）— Nav2 系列</b>：
+Josh Newans 的 "Navigating with Nav2"（含 costmap 與參數說明那一集）。
+他的特點是每個參數都會實際改給你看效果，非常適合當助教前的準備。今天挑 costmap 那一集重看。</li>
+<li><b>Cyrill Stachniss（YouTube）— "Occupancy Grid Maps" 與 "Iterative Closest Point (ICP)"</b>：
+只要你上午 A-2 的 log-odds 公式講不順，就回去看 Occupancy Grid 那一集（約 40 分鐘）。他的板書是全網最清楚的。</li>
+<li><b>Modern Robotics (Kevin Lynch) — Chapter 5 影片：Velocity Kinematics and Statics</b>：
+如果上午 A-4 的 Jacobian 與奇異點你講不出比喻，看 Ch.5.1–5.3，共約 30 分鐘。Day 15 開始 MoveIt2 之前這是必要基礎。</li>
+</ol>
+
+<h2>✅ 今日驗收清單</h2>
+<ul class="ck">
+<li><input type="checkbox"> 能在紙上默畫出 Nav2 完整資料流（bt_navigator / planner_server / controller_server / behavior_server / amcl / costmap 六個方塊與箭頭方向），且不看講義。</li>
+<li><input type="checkbox"> 能講清楚 <code>map → odom → base_link</code> 三層 tf 各由誰發布，以及「map→odom 代表什麼物理意義」。</li>
+<li><input type="checkbox"> <code>patrol_min.py</code> 成功跑完 4 個航點，終端機看得到 <code>剩餘距離</code> 持續下降，最後印出「巡航結束」。</li>
+<li><input type="checkbox"> 強化版可以正確觸發逾時取消：把 <code>TIMEOUT_SEC</code> 改成 5.0 重跑，機器人應該在 5 秒後停下並印出「主動取消」。</li>
+<li><input type="checkbox"> 已包成 <code>patrol_demo</code> package，<code>ros2 run patrol_demo patrol</code> 可執行。</li>
+<li><input type="checkbox"> 助教筆記已新增本週段落，至少寫下 5 個卡點與對應診斷指令。</li>
+</ul>
+
+<h2>🎓 助教筆記：本週學生最常卡住的 5 個問題</h2>
+
+<h3>卡點 1：goal 送出去，機器人完全不動、終端機一直刷 transform 錯誤</h3>
+<p><b>錯誤訊息：</b></p>
+<pre><code>[controller_server]: Timed out waiting for transform from base_link to map
+  to become available, tf error: Invalid frame ID "map" passed to canTransform</code></pre>
+<p><b>診斷：</b></p>
+<pre><code>ros2 run tf2_ros tf2_echo map odom     # 沒有輸出 → AMCL 沒在跑或沒收到 /scan
+ros2 node list | grep amcl
+ros2 topic hz /scan</code></pre>
+<p><b>解法：</b>依序確認 (1) amcl 節點存在且 lifecycle 是 active；(2) <code>/scan</code> 有在發；
+(3) 有沒有在 rviz2 按過 2D Pose Estimate。九成是第 (3) 點。</p>
+
+<h3>卡點 2：機器人在原地瘋狂旋轉，就是不出發</h3>
+<p><b>沒有錯誤訊息</b>，這是最讓學生崩潰的一種。</p>
+<p><b>診斷：</b>在 rviz2 開啟 <code>/particlecloud</code> 顯示。如果粒子雲是「散開一大片」而不是「聚成一小團」，
+代表 AMCL 完全不知道機器人在哪，它正在原地轉圈試圖蒐集資訊來收斂（這其實是 recovery 行為，不是壞掉）。</p>
+<p><b>解法：</b>重新用 2D Pose Estimate 給一個<b>準確</b>的初始位姿，包含<b>朝向</b>——
+學生常常只點對位置、箭頭方向卻拉反了 180 度，這會讓 AMCL 更難收斂。教他們「拖曳箭頭時要看機器人在 Gazebo 裡的正面朝哪」。</p>
+
+<h3>卡點 3：Failed to create plan / planner 一直失敗</h3>
+<p><b>錯誤訊息：</b><code>[planner_server]: GridBased plugin failed to plan from (…) to (…): "No valid path found"</code></p>
+<p><b>診斷順序：</b></p>
+<pre><code># (a) 目標點是不是落在障礙物或未知區域上？→ rviz2 看 global costmap 那格是不是紫/紅
+# (b) 膨脹半徑是不是太大，把通道填滿了？
+ros2 param get /global_costmap/global_costmap inflation_layer.inflation_radius
+ros2 param get /global_costmap/global_costmap robot_radius
+
+# (c) 先清一次 costmap 再試
+ros2 service call /global_costmap/clear_entirely_global_costmap \
+    nav2_msgs/srv/ClearEntireCostmap</code></pre>
+<p><b>解法：</b>TurtleBot3 burger 的 <code>robot_radius</code> 約 0.105，<code>inflation_radius</code> 通常設 0.25～0.55。
+若學生的地圖是狹窄走廊，把 inflation_radius 降到 0.2 左右通常就通了。
+<b>但要同時提醒代價</b>：膨脹太小 → 機器人會貼牆擦過去。這是個 trade-off，不是「越小越好」。</p>
+
+<h3>卡點 4：程式送 goal 沒反應，但 rviz2 手動點就會動</h3>
+<p><b>原因：</b>八成漏了 <code>waitUntilNav2Active()</code>，或是漏了 <code>use_sim_time</code>。</p>
+<p><b>診斷：</b></p>
+<pre><code>ros2 param get /bt_navigator use_sim_time   # 應為 True（Gazebo 情境）
+ros2 action list | grep navigate_to_pose    # 確認 action server 存在
+ros2 action info /navigate_to_pose -t</code></pre>
+<p><b>解法：</b>腳本裡 <code>waitUntilNav2Active()</code> 必須在任何 <code>goToPose()</code> 之前。
+另外提醒學生：<b>Python 腳本自己也要 use_sim_time</b>，否則它蓋的時間戳是牆鐘時間，Gazebo 的節點會認為這個 goal「來自未來」而丟掉。
+可用 <code>ros2 run … --ros-args -p use_sim_time:=true</code>。</p>
+
+<h3>卡點 5：ModuleNotFoundError: No module named 'nav2_simple_commander'</h3>
+<p><b>診斷：</b></p>
+<pre><code>python3 -c "import nav2_simple_commander; print('ok')"
+apt list --installed 2>/dev/null | grep nav2-simple-commander
+echo $AMENT_PREFIX_PATH        # 空的 → 根本沒 source</code></pre>
+<p><b>解法：</b>依序 (1) <code>sudo apt install ros-humble-nav2-simple-commander</code>；
+(2) <code>source /opt/ros/humble/setup.bash</code>；(3) 若在 conda 環境裡跑會找不到系統的 ROS2 套件——
+<b>提醒學生：ROS2 相關程式一律用系統 Python 3.10 跑，不要在 conda 環境裡跑</b>（conda 留給 Day 20 的 Isaac Sim）。
+這一條寫進助教手冊的環境章節，因為它會重複發生。</p>
+
+<h2>📮 回報格式</h2>
+<div class="box">
+今天結束後請回覆以下四項：
+<ol>
+<li><b>完成了什麼</b>：驗收清單勾了幾項？巡航跑到第幾個航點？</li>
+<li><b>卡在哪</b>：請貼<b>完整錯誤訊息</b>（含節點名稱那一段，不要只寫「失敗」），以及你當下下了哪些診斷指令。</li>
+<li><b>沒懂的概念</b>：上午六題裡哪幾題你答不出來？具體說「我不懂 Jacobian 為什麼跟姿態有關」比「運動學不太懂」有用十倍。</li>
+<li><b>實際花的時間</b>：上午／下午／晚上各多久？如果嚴重超時，明天的份量我會調整。</li>
+</ol>
+</div>
+
+<footer>
+<a href="index.html">← 回索引</a><br>
+Ubuntu 22.04 · ROS2 Humble · Gazebo Classic 11 · Python 3.10 · Physical AI 助教特訓 Day 14 / 30
+</footer>
+
+</div></body>
+</html>
