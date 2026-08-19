@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Day 15｜MoveIt2 架構與 demo + Isaac Sim 安裝</title>
+<style>
+:root{color-scheme:light}
+*{box-sizing:border-box}
+body{margin:0;background:#fcfcfb;color:#2e2c27;
+font-family:-apple-system,"Segoe UI","PingFang TC","Microsoft JhengHei",sans-serif;
+line-height:1.75}
+.wrap{max-width:900px;margin:0 auto;padding:40px 22px 90px}
+h1{font-family:Georgia,"Noto Serif TC",serif;font-size:30px;margin:0 0 6px;font-weight:600;line-height:1.3}
+.meta{color:#6b6a63;font-size:14px;margin:0 0 6px}
+h2{font-size:21px;margin:44px 0 12px;padding-bottom:8px;border-bottom:2px solid #e4e3dc;font-weight:650}
+h3{font-size:17px;margin:28px 0 8px;font-weight:650;color:#1f5c4a}
+h4{font-size:15px;margin:18px 0 6px;font-weight:650}
+p{margin:10px 0}
+ul,ol{margin:10px 0;padding-left:24px}
+li{margin:6px 0}
+code{background:#f0efe9;padding:1px 5px;border-radius:3px;font-size:13.5px;
+font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace}
+pre{background:#1e1e22;color:#e6e6e6;padding:16px 18px;border-radius:8px;overflow-x:auto;
+font-size:13px;line-height:1.6;margin:14px 0}
+pre code{background:none;color:inherit;padding:0;font-size:13px}
+.goal{background:#eef6f2;border-left:4px solid #2f8f6f;padding:14px 18px;border-radius:0 6px 6px 0;margin:18px 0}
+.warn{background:#fdf3e7;border-left:4px solid #d08a2c;padding:12px 16px;border-radius:0 6px 6px 0;margin:14px 0}
+.misc{background:#fbeeee;border-left:4px solid #c0554f;padding:12px 16px;border-radius:0 6px 6px 0;margin:14px 0}
+.metaphor{background:#f4f1fa;border-left:4px solid #7a6bb0;padding:12px 16px;border-radius:0 6px 6px 0;margin:14px 0}
+table{border-collapse:collapse;width:100%;margin:14px 0;font-size:14.5px}
+th,td{border:1px solid #ddd;padding:8px 10px;text-align:left;vertical-align:top}
+th{background:#f4f3ee}
+.sched{list-style:none;padding:0}
+.sched li{border:1px solid #e4e3dc;border-radius:6px;padding:12px 14px;margin:10px 0;background:#fff}
+.tag{display:inline-block;background:#2e2c27;color:#fff;font-size:12px;padding:2px 9px;border-radius:12px;margin-right:8px}
+.check{list-style:none;padding:0}
+.check li{padding:8px 0 8px 30px;position:relative;border-bottom:1px dashed #e4e3dc}
+.check li::before{content:"☐";position:absolute;left:4px;font-size:17px;color:#2f8f6f}
+.qa{border:1px solid #e4e3dc;border-radius:8px;padding:14px 16px;margin:14px 0;background:#fff}
+.qa h4{margin-top:0;color:#a5352c}
+footer{margin-top:56px;padding-top:16px;border-top:1px solid #e4e3dc;font-size:13.5px;color:#6b6a63}
+footer a{color:#2f8f6f}
+.formula{background:#f7f6f1;border:1px solid #e4e3dc;border-radius:6px;padding:12px 16px;margin:12px 0;
+font-family:Georgia,serif;font-size:15.5px}
+@media(max-width:640px){.wrap{padding:28px 15px 70px}h1{font-size:24px}h2{font-size:19px}pre{font-size:12px}}
+</style>
+</head>
+<body><div class="wrap">
+
+<h1>Day 15｜MoveIt2 架構與 demo + Isaac Sim 安裝</h1>
+<p class="meta">2026-08-19（三）· 特訓第 15 天 · 第三週第 1 天 · 手臂操作篇開始</p>
+<p class="meta">環境鎖定：Ubuntu 22.04 · ROS2 Humble · Gazebo Classic 11 · Python 3.10（Isaac Sim 用獨立 conda Python 3.11）</p>
+
+<div class="goal">
+<strong>今日目標</strong><br>
+今天結束時，你要能：<b>把 MoveIt2 的 Panda demo 開起來，在 RViz 裡拖動 interactive marker、按 Plan &amp; Execute 讓手臂走一條無碰撞軌跡；並且能對著白板講出「一個目標姿態送進 move_group 之後，經過哪些元件、產生什麼東西、最後怎麼變成馬達指令」</b>。晚上完成 Isaac Sim 5.1 安裝並成功開起一個空場景。
+</div>
+
+<p>前兩週你處理的都是「會動的底盤」：Nav2 在 2D 平面上規劃 <code>x, y, θ</code> 三個自由度。今天開始換戰場——手臂的 configuration space 是 6 或 7 維，Nav2 那套 costmap + A* 的思路直接失效。這是 Day 12 / Day 13 學的運動學與動力學第一次派上用場的地方。</p>
+
+<h2>時段安排（總計 6 小時）</h2>
+<ul class="sched">
+<li><span class="tag">上午 2.0h</span><b>理論</b>：MoveIt2 六大元件、URDF vs SRDF、Planning Scene、碰撞檢查與 ACM、OMPL 取樣式規劃與 RRT-Connect、規劃管線與時間參數化。</li>
+<li><span class="tag">下午 2.5h</span><b>實作</b>：安裝 MoveIt2 → 跑 Panda demo → RViz MotionPlanning 面板全功能操作 → 用 <code>ros2 topic/service/action</code> 反向解剖資料流 → 故意製造三種規劃失敗並讀懂錯誤訊息。</li>
+<li><span class="tag">晚上 1.5h</span><b>收尾</b>：Isaac Sim 5.1 安裝與首次啟動（shader 編譯很久，先讓它跑）＋ 寫助教筆記＋回報。</li>
+</ul>
+
+<h2>知識點逐個講解</h2>
+
+<h3>1. move_group：為什麼要有一個「大腦 node」</h3>
+<p><b>它解決什麼問題。</b>要讓手臂從 A 移到 B，你至少需要：知道機器人現在在哪（joint states）、知道世界上有什麼障礙（碰撞物件）、算出目標姿態對應的關節角（IK）、找一條不撞到東西的關節空間路徑（motion planning）、把路徑加上速度與時間（trajectory）、送給控制器執行。如果每個功能各自寫一個 node，它們會各自維護一份不同步的世界狀態——這是災難。MoveIt2 的解法是把這些全部塞進一個叫 <code>move_group</code> 的 node，對外只開三種介面。</p>
+
+<div class="metaphor">
+<b>比喻。</b><code>move_group</code> 是餐廳的<b>出餐口</b>。你（使用者）不會跑進廚房自己炒菜，你只在出餐口點單：「我要手掌到桌上這個位置」。廚房裡誰切菜（IK）、誰查食材有沒有過期（碰撞檢查）、誰決定上菜順序（軌跡時間），你不管。壞處也一樣：出餐口一塞住，整間店都不出菜——這就是為什麼 MoveIt 的 debug 幾乎都在看 <code>move_group</code> 那個 terminal 的輸出。
+</div>
+
+<p><b>三種介面（助教一定要記）：</b></p>
+<table>
+<tr><th>介面</th><th>形式</th><th>用在哪</th></tr>
+<tr><td><code>MoveGroupInterface</code>（C++）</td><td>函式呼叫（內部包 action client）</td><td>正式專案、效能敏感</td></tr>
+<tr><td><code>moveit_py</code> / <code>pymoveit2</code></td><td>Python</td><td>課堂教學、快速原型（明天 Day 16 主打）</td></tr>
+<tr><td><code>/move_action</code></td><td>ROS 2 Action</td><td>跨語言、想自己組 goal message 時</td></tr>
+</table>
+
+<div class="misc">
+<b>學生常見誤解。</b>「我寫的 Python 腳本自己在算 IK 跟規劃。」不是。你的腳本只是把 goal 包成 action goal 丟給 <code>move_group</code>，真正的計算全在 <code>move_group</code> 那個 process 裡。所以腳本印出 "planning failed" 時，<b>錯誤細節不在你的 terminal，在 move_group 的 terminal</b>。這一點沒講清楚，學生會花兩小時在自己的腳本裡加 print。
+</div>
+
+<h3>2. URDF vs SRDF：長相 vs 語意</h3>
+<p><b>它解決什麼問題。</b>URDF（Day 6 學過）只描述物理事實：有哪些 link、質量多少、joint 在哪、極限多少、視覺與碰撞幾何長怎樣。但規劃器還需要知道一些 URDF 講不出來的事：「哪 7 個 joint 合起來叫做『手臂』？」「哪兩個 link 在物理上根本永遠不可能碰到，不用每次都檢查？」「『home 姿態』是指哪組角度？」這些是<b>語意</b>資訊，寫在 SRDF（Semantic Robot Description Format）。</p>
+
+<table>
+<tr><th></th><th>URDF</th><th>SRDF</th></tr>
+<tr><td>回答的問題</td><td>機器人<b>是什麼</b></td><td>機器人<b>怎麼被使用</b></td></tr>
+<tr><td>典型內容</td><td>link / joint / inertial / visual / collision / mesh</td><td>group、group_state、end_effector、virtual_joint、disable_collisions</td></tr>
+<tr><td>誰讀它</td><td>robot_state_publisher、Gazebo、RViz、規劃器</td><td>只有 MoveIt</td></tr>
+<tr><td>改了會怎樣</td><td>模型形狀/動力學變了</td><td>規劃行為變了，但機器人外觀不變</td></tr>
+</table>
+
+<p><code>disable_collisions</code> 這一段值得特別講：MoveIt Setup Assistant 會隨機取樣上萬組姿態，統計出「從來沒碰過」「總是碰在一起（相鄰 link）」「預設姿態就碰在一起」的 link pair，把它們寫進 SRDF 停用檢查。一組 7 軸手臂大概有 <code>C(n,2)</code> 對 link 要檢查，停用掉七八成之後碰撞檢查才跑得動。</p>
+
+<div class="misc">
+<b>學生常見誤解。</b>「我在 URDF 加了一個新的 link（例如夾具上的相機支架），為什麼 MoveIt 一直說 start state in collision？」因為新 link 沒有出現在 SRDF 的 <code>disable_collisions</code> 清單裡，它跟旁邊的 link 幾何重疊就被判定碰撞。<b>改 URDF 之後要重跑 Setup Assistant 或手動補 SRDF</b>——這是課堂上最常見的「明明只加了一塊板子卻整個壞掉」。
+</div>
+
+<h3>3. Planning Scene：MoveIt 心裡的那個世界</h3>
+<p><b>它解決什麼問題。</b>規劃器要問「這個姿態會不會撞到」，就得有一份「世界現在長怎樣」的快照。Planning Scene 就是這份快照，由三部分組成：</p>
+<ol>
+<li><b>Robot State</b>：所有 joint 的當前角度（從 <code>/joint_states</code> 來）。</li>
+<li><b>World</b>：<code>CollisionObject</code>（你程式加的箱子、桌子）＋ Octomap（從深度相機點雲即時建的體素地圖）。</li>
+<li><b>Allowed Collision Matrix (ACM)</b>：一張布林矩陣，標記哪些 pair 之間的碰撞「允許」。</li>
+</ol>
+
+<p>維護它的是 <code>PlanningSceneMonitor</code>，它訂閱三路資料：<code>/joint_states</code>（機器人動了）、<code>/planning_scene</code>（別人推來的差異更新）、以及 <code>/attached_collision_object</code>（夾到東西了）。</p>
+
+<div class="metaphor">
+<b>比喻。</b>Planning Scene 是<b>圍棋棋盤的當前局面圖</b>。規劃器是棋手，它只會盯著這張圖想棋。如果圖沒更新（<code>/joint_states</code> 斷了），棋手就會照著三分鐘前的局面下棋——動作看起來完全合理，但會直接撞上剛剛才放上桌的杯子。
+</div>
+
+<p>RViz 裡的顏色是最好的 debug 工具，務必教學生看懂：</p>
+<table>
+<tr><th>顏色</th><th>意思</th></tr>
+<tr><td>橘色（半透明）</td><td>你在 RViz 拖出來的 <b>goal state</b>（還沒執行）</td></tr>
+<tr><td>灰白/實體</td><td>機器人的 <b>current state</b>（真實 joint_states）</td></tr>
+<tr><td>綠色</td><td>start state（若你手動改過）</td></tr>
+<tr><td>紅色高亮 link</td><td><b>正在碰撞</b>的 link——直接告訴你哪兩塊撞了</td></tr>
+</table>
+
+<h3>4. 碰撞檢查：FCL 與 ACM</h3>
+<p>MoveIt 底層用 <b>FCL</b>(Flexible Collision Library) 做幾何碰撞查詢。檢查一組姿態的成本大致是：</p>
+<div class="formula">
+單次碰撞檢查成本 ≈ N<sub>pair</sub> × C<sub>pair</sub>
+</div>
+<ul>
+<li><b>N<sub>pair</sub></b>：需要檢查的 link/物件配對數。ACM 停用越多，這個數字越小。一支 8 個 link 的手臂全開是 <code>C(8,2)=28</code> 對，加上世界物件會再乘上去。</li>
+<li><b>C<sub>pair</sub></b>：單一配對的幾何檢查成本，跟幾何複雜度直接相關。<b>凸包（box/cylinder/sphere）是常數級，三角網格（mesh）是好幾個數量級的差距。</b></li>
+</ul>
+<p>這解釋了一個實務現象：學生用 SolidWorks 匯出的 50 萬面 mesh 當 collision geometry，規劃時間從 0.2 秒變成 40 秒。<b>正確做法：visual 用漂亮 mesh，collision 用簡化凸包。</b>這是 URDF 有 <code>&lt;visual&gt;</code> 和 <code>&lt;collision&gt;</code> 兩個獨立標籤的全部理由。</p>
+
+<div class="misc">
+<b>學生常見誤解。</b>「規劃出來的路徑一定不會碰撞。」不完全對。規劃器是<b>離散取樣</b>檢查路徑上的點（由 <code>longest_valid_segment_fraction</code> 控制取樣密度）。如果這個參數設太大、障礙物又很薄（例如一片牆），路徑可能「穿牆而過」而檢查不出來——術語叫 <b>tunneling</b>。這是實機撞機的經典死因之一。
+</div>
+
+<h3>5. OMPL 與取樣式規劃：為什麼不用 A*</h3>
+<p><b>它解決什麼問題。</b>Nav2 的 A* 在 2D 網格上跑得很好，因為狀態空間只有兩三維。手臂的 configuration space（C-space）是每個關節一個維度：</p>
+<div class="formula">
+網格法的狀態數 = k<sup>n</sup>
+</div>
+<ul>
+<li><b>n</b>：自由度數（Panda 是 7）。</li>
+<li><b>k</b>：每個關節切幾格。</li>
+</ul>
+<p>就算每個關節只切 <b>10</b> 格（角度解析度粗到 36°，根本不能用），7 軸也是 10<sup>7</sup> = 一千萬個狀態；切 100 格就是 10<sup>14</sup>。這就是 <b>curse of dimensionality</b>：網格法在高維度直接死掉。</p>
+
+<p><b>取樣式規劃（sampling-based planning）的解法</b>是：不建完整地圖，只在 C-space 裡<b>隨機丟點</b>，檢查點是否無碰撞，把可連的點連起來成一棵樹，直到樹碰到目標。</p>
+
+<div class="metaphor">
+<b>比喻。</b>你在一個伸手不見五指的大山洞裡要找出口。A* 是「把整個山洞畫成方格地圖再搜尋」——山洞太大畫不完。RRT 是「站在原地隨便往一個方向丟一根繩子，能拉直就沿著繩子走一步，站到新位置再丟」。丟夠多次，總會有一根繩子搭到出口。它不保證最短，但保證<b>只要有解、丟到無限次就會找到</b>（這叫 probabilistic completeness，機率完備）。
+</div>
+
+<p><b>RRT-Connect</b>（MoveIt Humble 的預設 planner）的關鍵改良：<b>同時從起點和終點各長一棵樹，每次交替長，並且每次都嘗試把兩棵樹接起來</b>。雙向搜尋讓需要的取樣數大幅下降，這是它成為預設值的原因。</p>
+
+<p>常見 OMPL planner 對照：</p>
+<table>
+<tr><th>Planner</th><th>特性</th><th>什麼時候用</th></tr>
+<tr><td><b>RRT-Connect</b></td><td>雙向、非常快、路徑醜</td><td>預設，追求「找得到」</td></tr>
+<tr><td>RRT*</td><td>漸進最佳（asymptotically optimal），給多少時間就優化多久</td><td>要求路徑品質、可以等</td></tr>
+<tr><td>PRM</td><td>先建 roadmap，之後同一場景重複查詢很快</td><td>環境固定、多次規劃</td></tr>
+<tr><td>BiTRRT / KPIECE</td><td>處理有代價地形/狹窄通道</td><td>特殊情況</td></tr>
+</table>
+
+<div class="misc">
+<b>學生常見誤解（本日最重要）。</b>「我按兩次 Plan，結果路徑不一樣，是不是壞了？」<b>沒壞，這是設計。</b>取樣是隨機的，每次結果都不同，而且都不是最佳解。這帶出三個必須教的推論：<br>
+① 手臂做出「先繞到後面再回來」的怪動作是正常的，那是 RRT 隨機性 + 只做了 simplification 的結果。<br>
+② demo 時千萬不要假設路徑可重現——<b>示範前一定要先 Plan 看預覽，確認合理再 Execute</b>。<br>
+③ 要穩定可重現的路徑，就不要用 OMPL，改用 Cartesian path 或 Pilz industrial motion planner（明天 Day 16 會碰到）。
+</div>
+
+<h3>6. 規劃管線：request adapter 與時間參數化</h3>
+<p>OMPL 吐出來的東西其實<b>只有一串關節角（path），沒有時間</b>。從 path 變成可執行的 trajectory，中間有一整條 planning pipeline，由「adapter」串起來：</p>
+<ol>
+<li><b>FixStartStateBounds</b>：真實機器人的 joint 常常因為編碼器誤差超出 URDF 極限 0.001 rad，規劃器會直接拒絕。這個 adapter 把它夾回範圍內。<b>沒有它，實機幾乎規劃不動。</b></li>
+<li><b>FixStartStateCollision</b>：起始姿態就在碰撞中時，微調一點點試著脫離。</li>
+<li><b>（規劃）</b>OMPL 產生無碰撞 path。</li>
+<li><b>Simplification / shortcutting</b>：把明顯繞路的段落拉直。</li>
+<li><b>AddTimeOptimalParameterization (TOTG)</b>：<b>這一步才產生時間</b>。在滿足每個 joint 的速度/加速度上限下，算出走完每個 waypoint 的時刻。</li>
+</ol>
+<p>所以 <code>velocity_scaling_factor = 0.1</code> 這個參數改的是第 5 步，不是規劃本身——它只是把時間軸拉長。<b>教學上這條界線要講清楚：規劃決定「走哪條路」，時間參數化決定「走多快」，兩件事完全分開。</b></p>
+
+<h3>7. 執行：move_group 怎麼變成馬達指令</h3>
+<p>最後一段路是 <code>moveit_simple_controller_manager</code>：它讀 <code>moveit_controllers.yaml</code>，把 trajectory 包成 <code>control_msgs/action/FollowJointTrajectory</code> goal，送給 ros2_control 那邊的 <code>joint_trajectory_controller</code>（Day 13 學過），由它做插值並丟給 hardware interface。</p>
+
+<p><b>完整資料流（背下來，這是助教必考題）：</b></p>
+<pre><code>你的程式 / RViz
+      │  goal (pose or joint values)
+      ▼
+ /move_action  (ROS2 Action)
+      ▼
+ ┌──────────── move_group ────────────┐
+ │ PlanningSceneMonitor               │◄── /joint_states
+ │   ├ RobotState  ├ World  ├ ACM     │◄── /planning_scene
+ │ Request Adapters (FixStartState…)  │
+ │ Planner Plugin  (OMPL/RRT-Connect) │
+ │   └ 每個取樣點 → FCL 碰撞檢查      │
+ │ Simplify → TimeParameterization    │
+ │ Controller Manager                 │
+ └──────────────┬─────────────────────┘
+                │ FollowJointTrajectory (Action)
+                ▼
+     joint_trajectory_controller (ros2_control)
+                ▼
+        hardware_interface → 馬達</code></pre>
+
+<h3>8. Isaac Sim 5.1 與 USD（晚上的暖身概念）</h3>
+<p><b>它解決什麼問題。</b>Gazebo Classic 的渲染是「能看」等級，物理是剛體導向。但 Day 19–20 要做 Sim2Real 和 domain randomization，需要<b>照片級渲染</b>（讓相機影像在模擬與真實之間差距夠小）和<b>GPU 平行環境</b>（RL 訓練要同時跑幾千個機器人）。Isaac Sim 建在 NVIDIA Omniverse 上，用 <b>USD</b>(Universal Scene Description) 當場景格式。</p>
+<p><b>USD 的關鍵概念：它是「圖層堆疊」而不是單一檔案。</b>你可以有一個 base 場景層，再疊一層改材質、再疊一層改光照，彼此不覆寫原檔（叫 <i>composition arcs</i>）。這就是 domain randomization 能做得很乾淨的底層原因。</p>
+<div class="misc">
+<b>學生常見誤解。</b>「Isaac Sim 可以取代 Gazebo，所以我直接學 Isaac 就好。」不建議。Isaac Sim 對硬體要求高（需要 RTX GPU、大量 VRAM 與磁碟）、第一次啟動 shader 編譯要 10–30 分鐘、而且 ROS2 bridge 的設定比 Gazebo 麻煩得多。<b>課堂上 Gazebo 仍是主力，Isaac 只在 RL / 高擬真視覺的單元用。</b>學生電腦跑不動時的備案是 MuJoCo（Day 20 會給）。
+</div>
+
+<h2>可直接複製貼上的指令與程式碼</h2>
+
+<h3>A. 安裝 MoveIt2（Humble，二進位安裝，5 分鐘）</h3>
+<pre><code># 主體套件 + RViz 外掛 + 官方 Panda 範例設定
+sudo apt update
+sudo apt install -y \
+  ros-humble-moveit \
+  ros-humble-moveit-resources \
+  ros-humble-moveit-resources-panda-moveit-config \
+  ros-humble-moveit-ros-visualization \
+  ros-humble-moveit-servo \
+  ros-humble-joint-state-publisher-gui
+
+# 驗證：這三個都該印出路徑，任何一個空的就是沒裝好
+source /opt/ros/humble/setup.bash
+ros2 pkg prefix moveit_ros_move_group
+ros2 pkg prefix moveit_resources_panda_moveit_config
+ros2 pkg prefix moveit_ros_visualization</code></pre>
+
+<h3>B. 跑起 Panda demo</h3>
+<pre><code>source /opt/ros/humble/setup.bash
+ros2 launch moveit_resources_panda_moveit_config demo.launch.py</code></pre>
+<p>RViz 會開起來。<b>操作步驟（照做，每一步都要看懂在幹嘛）：</b></p>
+<ol>
+<li>左側 Displays 找到 <b>MotionPlanning</b>。沒有的話點 <b>Add → MotionPlanning</b>。</li>
+<li>展開 <b>MotionPlanning → Planning Request</b>，勾選 <code>Query Goal State</code>。手臂會出現一個橘色分身。</li>
+<li>拖動末端的<b>互動球（interactive marker）</b>：拉箭頭平移、拉圓環旋轉。橘色分身跟著動 = IK 有解；分身卡住不動 = IK 無解或超出工作空間。</li>
+<li>下方 <b>Planning</b> 分頁 → 按 <b>Plan</b>。看軌跡預覽動畫（會重播好幾次）。</li>
+<li>覺得合理 → 按 <b>Execute</b>。灰色的實體機器人會跟著走。</li>
+<li>試 <b>Goal State</b> 下拉選 <code>ready</code> / <code>extended</code> 這些 named state——這些就是 SRDF 裡的 <code>group_state</code>。</li>
+</ol>
+
+<h3>C. 反向解剖：用指令看 MoveIt 到底開了什麼</h3>
+<pre><code># 開第二個 terminal，demo 保持開著
+source /opt/ros/humble/setup.bash
+
+# 1) move_group 是不是真的在？
+ros2 node list | grep move_group
+
+# 2) 它提供哪些 action？應該看到 /move_action 與 /execute_trajectory
+ros2 action list
+
+# 3) 看 goal 的訊息長什麼樣（明天寫 Python 會用到）
+ros2 interface show moveit_msgs/action/MoveGroup | head -40
+
+# 4) Planning Scene 現在的內容（機器人狀態 + 世界物件）
+ros2 topic echo /monitored_planning_scene --once | head -60
+
+# 5) 有哪些 planning group？（對應 SRDF 的 group）
+ros2 service call /get_planning_scene moveit_msgs/srv/GetPlanningScene "{}" | head -20
+
+# 6) 直接讀 SRDF —— 今天一定要親眼看過這個檔
+ros2 param get /move_group robot_description_semantic | head -60
+
+# 7) 執行時控制器介面確認（規劃成功但不動時的第一個檢查點）
+ros2 action list | grep follow_joint_trajectory
+ros2 control list_controllers   # 需 ros-humble-ros2controlcli</code></pre>
+
+<h3>D. 故意製造三種失敗（今天的核心練習）</h3>
+<pre><code># 失敗 1：目標超出工作空間 → "Unable to sample any valid states"
+#   在 RViz 把互動球用力拖到手臂根本搆不到的遠處，按 Plan。
+#   觀察 move_group terminal 的訊息，不要只看 RViz 的紅字。
+
+# 失敗 2：起始姿態自我碰撞 → "Start state appears to be in collision"
+#   Planning 分頁把 Start State 改成 <current>，
+#   再用 Query Start State 把手肘拖進機身裡，按 Plan。
+
+# 失敗 3：規劃時間不足 → "No motion plan found"
+#   Planning 分頁把 Planning Time 從 5.0 改成 0.05，
+#   規劃一條需要繞過障礙的長路徑。
+#   → 改回 5.0 再試一次，讓學生體會「規劃失敗 ≠ 無解」。</code></pre>
+
+<h3>E. 用 Python 加一個碰撞物件（明天的前菜，今天先跑過）</h3>
+<pre><code># ~/ws_moveit/src/day15_demo/day15_demo/add_box.py
+# 直接發佈到 /planning_scene，不需要 moveit_py，最少依賴的做法。
+import rclpy
+from rclpy.node import Node
+from moveit_msgs.msg import PlanningScene, CollisionObject
+from shape_msgs.msg import SolidPrimitive
+from geometry_msgs.msg import Pose
+
+
+class AddBox(Node):
+    def __init__(self):
+        super().__init__('add_box')
+        # PlanningScene 是 latched 概念，用 transient_local 讓 move_group 一定收得到
+        self.pub = self.create_publisher(PlanningScene, '/planning_scene', 10)
+        self.timer = self.create_timer(1.0, self.publish_once)
+        self.done = False
+
+    def publish_once(self):
+        if self.done:
+            return
+
+        obj = CollisionObject()
+        # frame_id 必須是 move_group 認得的 frame（Panda 的 root 是 panda_link0）
+        obj.header.frame_id = 'panda_link0'
+        obj.id = 'table_box'
+
+        box = SolidPrimitive()
+        box.type = SolidPrimitive.BOX
+        box.dimensions = [0.4, 0.4, 0.02]   # x, y, z 長寬高（公尺）
+
+        pose = Pose()
+        pose.position.x = 0.5   # 手臂前方 50 cm
+        pose.position.y = 0.0
+        pose.position.z = 0.2   # 桌面高度
+        pose.orientation.w = 1.0  # 沒有這行 quaternion 全 0 = 非法，MoveIt 會拒收
+
+        obj.primitives.append(box)
+        obj.primitive_poses.append(pose)
+        obj.operation = CollisionObject.ADD
+
+        scene = PlanningScene()
+        scene.world.collision_objects.append(obj)
+        scene.is_diff = True    # 關鍵：差異更新，不是整份覆寫掉現有場景
+
+        self.pub.publish(scene)
+        self.get_logger().info('已送出 table_box，回 RViz 看綠色方塊有沒有出現')
+        self.done = True
+
+
+def main():
+    rclpy.init()
+    node = AddBox()
+    rclpy.spin_once(node, timeout_sec=3.0)
+    rclpy.spin_once(node, timeout_sec=3.0)
+    node.destroy_node()
+    rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()</code></pre>
+<pre><code># 快速跑法（不建 package，直接執行）
+source /opt/ros/humble/setup.bash
+python3 add_box.py
+
+# 然後回 RViz：應該看到一塊綠色方塊。
+# 現在把目標拖到方塊「下方」再 Plan —— 手臂會繞開它。
+# 這一步跑通，你就親眼看到 Planning Scene 影響規劃結果了。</code></pre>
+
+<div class="warn">
+<b>坑：</b><code>is_diff = True</code> 一定要設。設 <code>False</code> 等於「用我這份取代整個場景」，機器人模型本身會從場景裡消失，接下來所有規劃行為都會很詭異。這是初學者加物件時最常見的一發入魂錯誤。
+</div>
+
+<h3>F. Isaac Sim 5.1 安裝（晚上，1.5h，含下載等待）</h3>
+<pre><code># 先確認硬體門檻 —— 不符合就直接跳過，改用 Gazebo，別浪費一晚
+nvidia-smi                      # 看 Driver Version 與 VRAM
+lspci | grep -i nvidia
+df -h ~                         # Isaac Sim + 快取需要 ~50GB 以上空間
+
+# 需求（不符就會開不起來）：
+#   - RTX 系列 GPU（GTX / 非 RTX 卡不支援 RTX 渲染路徑）
+#   - VRAM 8GB 為最低、16GB 才順
+#   - 較新的 NVIDIA 驅動（版本要求以官方 Isaac Sim 5.1 文件為準，
+#     若啟動時報 driver 太舊，先升驅動再說）</code></pre>
+
+<pre><code># --- 用獨立 conda 環境（Python 3.11），不要污染系統 ROS2 的 Python 3.10 ---
+# 若還沒有 conda：
+#   wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
+#   bash Miniconda3-latest-Linux-x86_64.sh
+
+conda create -n isaac python=3.11 -y
+conda activate isaac
+
+pip install --upgrade pip
+
+# 從 NVIDIA 的 pip index 安裝（版本字串以官方頁面為準；
+# 若下面這行報找不到版本，先用 pip index 查可用版本再填）
+pip install "isaacsim[all,extscache]==5.1.0" --extra-index-url https://pypi.nvidia.com
+
+# 首次啟動（會跳 EULA，輸入 Yes；接著編譯 shader，10–30 分鐘，別以為當機了）
+isaacsim</code></pre>
+
+<div class="warn">
+<b>晚上的實際做法建議：</b>先下指令讓它裝＋編譯 shader，然後<b>去寫助教筆記</b>，不要坐在那邊盯進度條。今天 Isaac Sim 只要「能開起來、看到一個空場景、視窗不閃退」就算過關，實際操作是 Day 20 的事。
+</div>
+
+<h2>今日指定資源（2–4 個，照順序）</h2>
+<ol>
+<li><b>MoveIt 官方文件 → Concepts 頁</b>（<code>moveit.picknik.ai</code> → Concepts）。只讀「Motion Planning」與「Planning Scene」兩節，約 15 分鐘。這頁的那張系統架構圖<b>請截圖存下來，Day 29 講稿會直接用</b>。</li>
+<li><b>MoveIt2 Tutorials → "Getting Started" + "MoveIt Quickstart in RViz"</b>。今天的 RViz 操作完全對應這一節，卡住時對照它的截圖。</li>
+<li><b>Modern Robotics (Kevin Lynch) — Chapter 10: Motion Planning</b>，只看 10.1（問題定義與 C-space）與 10.5（sampling-based planning / RRT）。配套 YouTube 頻道「Northwestern Robotics」有對應短片，每支 5–10 分鐘。這是今天 RRT 那一段的數學靠山。</li>
+<li><b>NVIDIA Isaac Sim 官方 Installation 頁</b>（pip install 那一節）。<b>安裝步驟一律以這頁為準，不要照網路教學</b>——Isaac 版本間差異很大，5.x 跟 4.x 的安裝方式已經不同。</li>
+</ol>
+
+<h2>✅ 今日驗收清單</h2>
+<ul class="check">
+<li><code>ros2 launch moveit_resources_panda_moveit_config demo.launch.py</code> 能開，RViz 裡完成至少 3 次「拖互動球 → Plan → Execute」。</li>
+<li>能用 <code>ros2 param get /move_group robot_description_semantic</code> 看到 SRDF，並指出裡面 <code>group</code>、<code>group_state</code>、<code>disable_collisions</code> 三段各在講什麼。</li>
+<li>三種失敗（超出工作空間 / start state 碰撞 / 規劃時間不足）各重現一次，並把 <b>move_group terminal 的原始錯誤訊息</b>抄進助教筆記。</li>
+<li>跑通 <code>add_box.py</code>，在 RViz 看到方塊，且能讓手臂規劃出一條繞開它的路徑。</li>
+<li>不看筆記，口頭講完整條資料流：goal → move_group（scene / adapter / planner / 碰撞 / 時間參數化）→ FollowJointTrajectory → 控制器。</li>
+<li>Isaac Sim 能啟動並顯示空場景（硬體不符則明確寫下「不符合，改走 MuJoCo 備案」）。</li>
+</ul>
+
+<h2>🎓 助教筆記：今天學生最容易卡的 5 個點</h2>
+
+<div class="qa">
+<h4>1. RViz 開了，但左邊沒有 MotionPlanning 面板</h4>
+<p><b>現象：</b>Displays 裡 Add 之後找不到 MotionPlanning，或 RViz 一啟動就閃退。</p>
+<p><b>診斷：</b></p>
+<pre><code>ros2 pkg prefix moveit_ros_visualization   # 空的 = 沒裝
+echo $LD_LIBRARY_PATH | tr ':' '\n' | grep -c humble</code></pre>
+<p><b>解法：</b><code>sudo apt install ros-humble-moveit-ros-visualization</code>，然後<b>開全新 terminal</b> 重新 source。另一個常見原因是學生在同一個 terminal 裡先 source 了自己的 workspace 又 source 了 <code>/opt/ros</code>，順序反了導致抓到舊的 RViz plugin。<b>標準答案：關掉所有 terminal，開新的，只 source 一次。</b></p>
+</div>
+
+<div class="qa">
+<h4>2. "Unable to sample any valid states for goal tree"</h4>
+<p><b>翻譯成人話：</b>規劃器連一個合法的目標關節姿態都取樣不到。<b>幾乎不是規劃器的問題，是目標本身有病。</b></p>
+<p><b>三個依序檢查的原因：</b></p>
+<ol>
+<li><b>目標超出工作空間</b>——IK 無解。RViz 裡看橘色分身有沒有跟著互動球走；不跟就是無解。</li>
+<li><b>目標姿態本身在碰撞中</b>——例如目標點在桌子裡面。RViz 會把撞到的 link 標紅。</li>
+<li><b>目標超出 joint limits</b>——orientation 要求手腕轉超過極限。<b>試著只給 position tolerance、放寬 orientation</b>（RViz 的 Planning 分頁可調 Goal Tolerance）。</li>
+</ol>
+<p><b>教學話術：</b>「這個錯誤是規劃器在說『你給我的目的地不存在』，不是『我找不到路』。先確認目的地合不合法，再談路。」</p>
+</div>
+
+<div class="qa">
+<h4>3. Plan 成功，按 Execute 沒反應 / 立刻回 ABORTED</h4>
+<p><b>這是最耗時間的一類，因為錯誤訊息在 move_group terminal，學生只看 RViz。</b></p>
+<p><b>典型訊息：</b><code>Unable to identify any set of controllers that can actuate the specified joints</code> 或 <code>Failed to find controller for group</code>。</p>
+<p><b>診斷 SOP：</b></p>
+<pre><code># 1) 控制器 action server 存在嗎？
+ros2 action list | grep follow_joint_trajectory
+
+# 2) 控制器活著嗎？
+ros2 control list_controllers
+
+# 3) 名字對得上嗎？把下面兩份的 joint 名單逐字比對
+ros2 param get /move_group robot_description_semantic | grep -A5 "<group name"
+cat <你的 moveit_controllers.yaml></code></pre>
+<p><b>根因九成是：</b><code>moveit_controllers.yaml</code> 裡寫的 controller 名稱 / joint 名單，跟 <code>ros2_control</code> 實際載入的<b>對不上一個字</b>（常見是多了或少了 <code>panda_</code> 前綴）。<b>要求學生把兩份 YAML 並排貼在螢幕上逐行對</b>，比盲猜快十倍。</p>
+</div>
+
+<div class="qa">
+<h4>4. 機器人在 RViz 是「橘色半透明的漂浮狀態」，或整個歪掉</h4>
+<p><b>根因：</b>沒有 <code>/joint_states</code>，Planning Scene 的 RobotState 一直是預設值。</p>
+<pre><code>ros2 topic hz /joint_states      # 沒輸出 = 沒人在發
+ros2 node info /move_group | grep -i joint_states
+ros2 run tf2_tools view_frames   # 看 TF tree 有沒有斷</code></pre>
+<p><b>解法：</b>demo 模式下應該由 <code>joint_state_broadcaster</code>（fake controller）發佈。實機則是 driver 沒起來。順便複習 Day 5：<b>MoveIt 高度依賴 TF，TF tree 一斷，MoveIt 什麼都做不了</b>——這是 Day 5 那三大死法在手臂上的翻版。</p>
+</div>
+
+<div class="qa">
+<h4>5. 規劃超級慢（每次 3–5 秒），或每次路徑都很怪</h4>
+<p><b>慢的原因</b>幾乎都是 collision geometry 用了高面數 mesh。診斷：把 URDF 裡 <code>&lt;collision&gt;</code> 的 mesh 暫時換成 box，速度立刻回來就確診。</p>
+<p><b>路徑怪的原因</b>是 RRT 的隨機性。可以做的三件事：</p>
+<ol>
+<li>把 <code>Planning Attempts</code> 從 1 調到 10（多規劃幾次取最好的）。</li>
+<li>換 planner：RViz 的 Planning 分頁下拉選 <code>RRTstar</code>，並把 planning time 拉到 5–10 秒。</li>
+<li>需要「直線移動」時根本不該用 OMPL——改用 Cartesian path（明天 Day 16 主題）。</li>
+</ol>
+<p><b>教學重點：</b>學生看到怪路徑第一反應是「MoveIt 壞了」。要讓他理解<b>「找得到 ≠ 找得好」是取樣式規劃的本質特徵，不是 bug</b>。</p>
+</div>
+
+<div class="qa">
+<h4>加碼：Isaac Sim 開不起來</h4>
+<ul>
+<li><b>黑畫面 / 秒退：</b>九成是 GPU 驅動太舊或不是 RTX 卡。先跑 <code>nvidia-smi</code>。</li>
+<li><b>卡在啟動畫面十幾分鐘：</b><b>正常</b>，第一次要編譯 shader cache。第二次啟動會快很多。先別 Ctrl-C。</li>
+<li><b>WSL2 / 遠端連線：</b>Isaac Sim 的 GUI 在 WSL 或 X11 forwarding 下問題很多，建議直接在有實體螢幕的 Ubuntu 上跑。</li>
+<li><b><code>pip install</code> 找不到版本：</b>先 <code>pip index versions isaacsim --extra-index-url https://pypi.nvidia.com</code> 查實際可用版本，再填進去。</li>
+</ul>
+</div>
+
+<h2>📮 回報格式</h2>
+<p>今天結束後請回覆這四項（越具體，明天的內容越貼你）：</p>
+<ol>
+<li><b>完成了什麼</b>：驗收清單哪幾項打勾了。</li>
+<li><b>卡在哪</b>：<b>貼完整錯誤訊息</b>，包含 <code>move_group</code> terminal 的輸出，不要只寫「規劃失敗」。</li>
+<li><b>沒懂的概念</b>：例如「RRT-Connect 為什麼要長兩棵樹」「ACM 到底誰在維護」。</li>
+<li><b>實際花的時間</b>：上午 / 下午 / 晚上各多久。</li>
+</ol>
+<p>明天 Day 16 是 <b>MoveIt2 Python API + Planning Scene 碰撞物件 + attach/detach + Cartesian path + Pick&amp;Place 六步</b>——今天的 demo 一定要先跑通，明天才有東西可以寫程式操控。</p>
+
+<footer>
+<a href="index.html">← 回索引</a> · Physical AI 助教特訓 Day 15 / 30 · 2026-08-19
+</footer>
+
+</div></body>
+</html>
