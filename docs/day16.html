@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Day 16｜MoveIt2 Python API + Planning Scene + Pick &amp; Place 六步</title>
+<style>
+:root{color-scheme:light}
+*{box-sizing:border-box}
+body{margin:0;background:#fcfcfb;color:#2e2c27;
+font-family:-apple-system,"Segoe UI","PingFang TC","Microsoft JhengHei",sans-serif;
+line-height:1.75;font-size:16px}
+.wrap{max-width:900px;margin:0 auto;padding:44px 22px 90px}
+h1{font-family:Georgia,"Noto Serif TC",serif;font-size:30px;margin:0 0 6px;font-weight:600;line-height:1.35}
+.meta{color:#6b6a63;font-size:14px;margin:0 0 28px}
+h2{font-family:Georgia,"Noto Serif TC",serif;font-size:22px;margin:44px 0 12px;
+padding-bottom:8px;border-bottom:2px solid #e4e3dc;font-weight:600}
+h3{font-size:17px;margin:28px 0 8px;font-weight:700;color:#1f1d19}
+h4{font-size:15px;margin:18px 0 6px;font-weight:700;color:#4a4740}
+p{margin:10px 0}
+ul,ol{margin:10px 0;padding-left:24px}
+li{margin:5px 0}
+code{background:#f0efe9;padding:2px 6px;border-radius:4px;font-size:13.5px;
+font-family:"SF Mono",Consolas,"Roboto Mono",monospace}
+pre{background:#1e1e24;color:#e6e6e6;padding:16px 18px;border-radius:8px;
+overflow-x:auto;font-size:13px;line-height:1.6;margin:14px 0}
+pre code{background:none;padding:0;color:inherit;font-size:13px}
+.goal{background:#fff8e6;border-left:4px solid #d9a441;padding:14px 18px;border-radius:0 6px 6px 0;margin:18px 0}
+.box{background:#f7f7f3;border:1px solid #e4e3dc;border-radius:8px;padding:14px 18px;margin:16px 0}
+.warn{background:#fdf1ef;border-left:4px solid #c9563c;padding:12px 18px;border-radius:0 6px 6px 0;margin:14px 0}
+.metaphor{background:#eef4fa;border-left:4px solid #4a7fb5;padding:12px 18px;border-radius:0 6px 6px 0;margin:12px 0}
+.misread{background:#f5f0fa;border-left:4px solid #7d5ba6;padding:12px 18px;border-radius:0 6px 6px 0;margin:12px 0}
+table{border-collapse:collapse;width:100%;margin:14px 0;font-size:14.5px}
+th,td{border:1px solid #e4e3dc;padding:8px 10px;text-align:left;vertical-align:top}
+th{background:#f3f2ec;font-weight:700}
+.formula{background:#faf9f5;border:1px dashed #cfcdc2;padding:12px 16px;border-radius:6px;
+margin:12px 0;font-family:Georgia,serif;font-size:16px;text-align:center}
+.check li{margin:9px 0}
+footer{margin-top:56px;padding-top:18px;border-top:1px solid #e4e3dc;font-size:14px;color:#6b6a63}
+footer a{color:#4a7fb5}
+.tag{display:inline-block;background:#e8e6dd;color:#5a574e;font-size:12px;
+padding:2px 9px;border-radius:99px;margin-right:6px}
+@media(max-width:640px){.wrap{padding:30px 14px 70px}h1{font-size:24px}pre{font-size:12px}}
+</style>
+</head>
+<body><div class="wrap">
+
+<h1>Day 16｜MoveIt2 Python API + Planning Scene 碰撞物件 + attach/detach + Cartesian path + Pick&amp;Place 六步</h1>
+<p class="meta">2026-08-20（週四）· 第三週 第 2 天 · Physical AI 助教特訓 30 天計畫</p>
+
+<div class="goal">
+<strong>🎯 今日目標</strong><br>
+今天結束時，你要能用一支 Python 程式讓手臂完成一整套 pick and place：<strong>在 Planning Scene 裡放桌子與方塊 → 規劃到抓取姿態 → 關夾爪 → 把方塊 attach 到手上 → 沿直線抬起 → 移到放置點 → detach 放下</strong>；而且六個步驟中任何一步失敗，你都知道要打哪一條指令去看發生什麼事。
+</div>
+
+<h2>時段安排（總計約 5.5 小時）</h2>
+<table>
+<tr><th>時段</th><th>內容</th><th>時數</th></tr>
+<tr><td><strong>上午（理論）</strong></td><td>Planning Scene 是什麼、CollisionObject 三種幾何、ACM 允許碰撞矩陣、attach/detach 的真正意義、Cartesian path 與 OMPL 的差別、fraction 的意思</td><td>2.0 h</td></tr>
+<tr><td><strong>下午（實作）</strong></td><td>用 <code>moveit_py</code> 跑 Panda demo：加物件 → 規劃 → 執行 → attach → Cartesian 抬起 → 放下 → detach。中途故意製造三種失敗並修好</td><td>2.5 h</td></tr>
+<tr><td><strong>晚上（收尾）</strong></td><td>把 Pick&amp;Place 六步寫成一支可重跑的腳本 + 更新助教筆記 + 回報</td><td>1.0 h</td></tr>
+</table>
+
+<h2>一、Planning Scene：機器人「腦中的世界」</h2>
+
+<h3>它解決什麼問題</h3>
+<p>Day 15 你讓 MoveIt2 規劃了一條軌跡，但那時候世界是空的——機器人只避開了自己的手臂（自碰撞）。真實情境裡桌子、箱子、要抓的物件都在那，規劃器必須知道它們存在，否則規劃出來的路徑會直接穿過桌面。</p>
+<p><strong>Planning Scene 就是 move_group 節點內部維護的那份「世界快照」</strong>，內容包含三件事：</p>
+<ol>
+<li><strong>機器人目前狀態</strong>（每個關節的角度，從 <code>/joint_states</code> 來）</li>
+<li><strong>世界裡的碰撞物件</strong>（桌子、方塊、牆，還有從深度相機來的 octomap）</li>
+<li><strong>ACM（Allowed Collision Matrix）</strong>：哪些「碰撞」是被允許、可以忽略的</li>
+</ol>
+
+<div class="metaphor">
+<strong>比喻：</strong>Planning Scene 就像你閉著眼睛在自己房間走路時腦中的那張地圖。你知道床在左邊、櫃子在右邊，所以能繞開。如果有人趁你睡覺搬了一張椅子到中間而你不知道——你腦中的地圖沒更新——你就會撞上去。MoveIt2 完全一樣：<strong>它只會避開它「知道」的東西</strong>。Gazebo 裡看得到不代表 MoveIt2 知道；那是兩份互不相通的世界。
+</div>
+
+<div class="misread">
+<strong>學生常見誤解：</strong>「我在 Gazebo 裡放了一張桌子，MoveIt2 應該就會避開它。」<br>
+<strong>不會。</strong>Gazebo 是物理模擬器，MoveIt2 是規劃器，兩者各有各的世界模型。除非你（a）自己把 CollisionObject 加進 Planning Scene，或（b）接上深度相機讓 <code>occupancy_map_monitor</code> 產生 octomap，否則 MoveIt2 眼中桌子不存在。規劃出來會穿過去，然後在 Gazebo 裡撞爛。
+</div>
+
+<h3>怎麼改 Planning Scene：兩條路，選對很重要</h3>
+<table>
+<tr><th>方式</th><th>介面</th><th>特性</th></tr>
+<tr><td>Topic</td><td><code>/collision_object</code>（moveit_msgs/CollisionObject）</td><td>fire-and-forget，發了不知道有沒有生效。<strong>最常見的坑</strong>：publisher 剛建立、move_group 還沒訂閱到就發出去，訊息直接掉了</td></tr>
+<tr><td>Service</td><td><code>/apply_planning_scene</code>（moveit_msgs/srv/ApplyPlanningScene）</td><td>同步、有回傳值，<strong>確定生效才往下走</strong>。寫腳本一律用這個</td></tr>
+</table>
+
+<h3>CollisionObject 的三種幾何</h3>
+<ul>
+<li><strong>Primitive</strong>（BOX / SPHERE / CYLINDER / CONE）：碰撞檢查最快，桌子、方塊、柱子都用這個。<strong>預設就該用它。</strong></li>
+<li><strong>Mesh</strong>（.stl / .dae）：形狀精確，但碰撞檢查慢很多（FCL 要跑三角面片對三角面片）。真的需要才用，而且要簡化面數。</li>
+<li><strong>Plane</strong>：無限大平面，偶爾拿來當地板。</li>
+</ul>
+<p><code>operation</code> 欄位決定動作：<code>ADD</code>（新增／覆蓋同 id 的物件）、<code>REMOVE</code>（刪除）、<code>MOVE</code>（只改位姿，不重建幾何）。<strong>id 是唯一鍵</strong>，同 id 再 ADD 一次就是覆蓋。</p>
+
+<h3>ACM：為什麼「允許碰撞」是必要的而不是作弊</h3>
+<p>夾爪的兩根手指要夾住方塊，就<strong>必然</strong>會跟方塊碰撞。如果碰撞檢查器嚴格執行「任何接觸都是碰撞」，那抓取這件事在數學上永遠規劃不出來。ACM 就是一張表，記錄「這對物體之間的接觸請忽略」。</p>
+<p>URDF 載入時 MoveIt Setup Assistant 已經幫你把「永遠不可能碰到」和「相鄰連桿本來就相接」的組合寫進 SRDF 的 <code>&lt;disable_collisions&gt;</code>，那些就是初始 ACM。你在程式裡 attach 物件時指定的 <code>touch_links</code>，就是動態往 ACM 加項目。</p>
+
+<h2>二、attach / detach：不只是視覺效果</h2>
+
+<h3>它解決什麼問題</h3>
+<p>夾爪閉合、方塊被夾住了。此時如果你直接叫 MoveIt2 規劃移動，會發生兩件壞事：</p>
+<ol>
+<li>方塊還被當成「世界中的靜止障礙物」，而它現在就貼在夾爪上 → 規劃器認為機器人正處於碰撞狀態，直接回 <code>Start state is in collision</code>，什麼都規劃不出來。</li>
+<li>就算硬繞過去，規劃器不知道手上多了一個 5 公分的方塊，會規劃出讓方塊掃過桌邊的路徑 → 實機上把東西撞飛。</li>
+</ol>
+
+<p><strong>attach 做的事：把物件從「世界」搬到「機器人身上」</strong>，變成 <code>AttachedCollisionObject</code>，掛在指定的 link（通常是夾爪的 <code>hand</code> 或 <code>tool0</code>）上，跟著那個 link 一起動。從此規劃器把它當成機器人的一部分來做碰撞檢查。</p>
+
+<div class="metaphor">
+<strong>比喻：</strong>你手上端著一杯滿的咖啡走過窄門。你的大腦會自動把「杯子」納入身體範圍，肩膀轉的角度會不一樣。attach 就是告訴機器人「這杯咖啡現在算你身體的一部分」。沒 attach 的機器人，就像忘了自己手上有杯子的人——直直走進門框，咖啡撒一地。
+</div>
+
+<div class="warn">
+<strong>touch_links 是新手第一個大坑。</strong>attach 之後，物件跟夾爪手指必然接觸。如果你沒有在 <code>touch_links</code> 裡列出夾爪的所有手指 link，碰撞檢查器會判定「機器人自己撞到自己身上掛的東西」→ 一樣規劃失敗。<code>touch_links</code> 要填的是<strong>被允許跟這個物件接觸的 link 名稱清單</strong>，通常是整個夾爪群組的所有 link。
+</div>
+
+<div class="misread">
+<strong>學生常見誤解：</strong>「attach 之後，Gazebo 裡的方塊就會跟著手臂走。」<br>
+<strong>不會。</strong>attach 只改變 MoveIt2 的碰撞模型與 rviz 的顯示。物理上方塊會不會跟著走，取決於 Gazebo 裡夾爪的摩擦力參數夠不夠、以及有沒有掛 <code>gazebo_ros_link_attacher</code> 之類的插件。模擬中方塊從指縫滑掉是常態，那是物理引擎的問題，不是 MoveIt2 的問題——<strong>診斷時要先分清楚是哪一邊。</strong>
+</div>
+
+<h2>三、Cartesian path：為什麼「抬起來」不能用一般規劃</h2>
+
+<h3>它解決什麼問題</h3>
+<p>OMPL 這類取樣式規劃器（RRT-Connect 等）只保證「起點到終點、不撞到東西」，中間路徑長什麼樣完全隨機。對「從 A 點移動到 B 點」沒問題，但對兩個動作是災難：</p>
+<ul>
+<li><strong>approach（伸進去抓）</strong>：夾爪必須沿著抓取方向直線靠近，不然會從側面撞倒物件。</li>
+<li><strong>retreat（抓完抬起）</strong>：必須垂直向上直線提，OMPL 可能規劃出一條先橫向甩再上升的路徑，物件直接刮到桌面。</li>
+</ul>
+
+<p><strong>Cartesian path 是在笛卡兒空間（末端點的 x,y,z + 姿態）做直線插值</strong>，把直線切成很多小段，每一段用 IK 解出關節角。介面是 <code>/compute_cartesian_path</code> 服務（<code>moveit_msgs/srv/GetCartesianPath</code>）。</p>
+
+<h4>三個關鍵參數</h4>
+<div class="formula">
+fraction = 成功走完的路徑長度 ÷ 你要求的總路徑長度
+</div>
+<table>
+<tr><th>參數</th><th>物理意義</th><th>建議值</th></tr>
+<tr><td><code>max_step</code>（eef_step）</td><td>末端每一小步走多遠（公尺）。太大 → 插值太粗，中間可能穿過障礙；太小 → IK 要解幾千次，很慢</td><td><code>0.01</code>（1 公分）</td></tr>
+<tr><td><code>jump_threshold</code></td><td>相鄰兩點的關節角容許跳多少。設 <code>0.0</code> 代表<strong>完全關閉檢查</strong>——實機上這會讓手臂在經過奇異點時瞬間甩動，非常危險</td><td>模擬 <code>0.0</code> 可接受；<strong>實機請設 5.0 左右</strong></td></tr>
+<tr><td>回傳的 <code>fraction</code></td><td>1.0 = 整段直線都走得到；0.4 = 只走到 40% 就卡住（撞到東西、超出工作空間、或 IK 無解）</td><td><strong>&lt; 0.9 就不要執行</strong>，先查原因</td></tr>
+</table>
+
+<div class="misread">
+<strong>學生常見誤解：</strong>「fraction 回 0.6，那就執行那 60% 吧，總比不動好。」<br>
+<strong>非常危險。</strong>fraction 0.6 代表手臂會走到半路然後停在一個你沒預期的位置——可能夾爪還沒到物件上方就停了，接著程式往下執行「關夾爪」，夾住空氣或撞到桌面。正確做法是<strong>把 fraction 當成 assert</strong>：不到 0.9 就 raise，印出目前 pose 與目標 pose 的差距去查。
+</div>
+
+<h2>四、Pick &amp; Place 六步：把上面全部串起來</h2>
+
+<table>
+<tr><th>#</th><th>步驟</th><th>用什麼規劃</th><th>失敗時最可能的原因</th></tr>
+<tr><td>1</td><td><strong>Pre-grasp</strong>：移到物件正上方 10 cm，夾爪朝下、張開</td><td>OMPL（一般規劃）</td><td>IK 無解（姿態不可達）、起始狀態碰撞</td></tr>
+<tr><td>2</td><td><strong>Approach</strong>：沿 −Z 直線下降 10 cm 到抓取位姿</td><td><strong>Cartesian</strong></td><td>fraction &lt; 1：碰到自己加的方塊碰撞體</td></tr>
+<tr><td>3</td><td><strong>Grasp</strong>：關夾爪</td><td>gripper 控制器（不是 move_group）</td><td>gripper controller 沒起來 / action name 打錯</td></tr>
+<tr><td>4</td><td><strong>Attach</strong>：把方塊掛到夾爪 link，設好 touch_links</td><td>Planning Scene 服務</td><td>touch_links 沒填全 → 下一步規劃就死</td></tr>
+<tr><td>5</td><td><strong>Retreat</strong>：沿 +Z 直線抬起 15 cm</td><td><strong>Cartesian</strong></td><td>忘了 attach → start state in collision</td></tr>
+<tr><td>6</td><td><strong>Place + Detach</strong>：移到放置點、下降、開夾爪、detach、退開</td><td>OMPL + Cartesian</td><td>detach 後物件留在舊位置（要 MOVE 到新位置或直接 REMOVE）</td></tr>
+</table>
+
+<div class="box">
+<strong>💡 為什麼不用 MoveIt Task Constructor (MTC)？</strong><br>
+MTC 是官方推薦的 pick&amp;place 框架，它把上面六步變成可組合的 stage，還會自動嘗試多個 grasp 候選。但它是 C++ 為主、概念也重。<strong>今天先用手寫六步把每一步的失敗模式摸熟</strong>——之後學生問「MTC 為什麼規劃不出來」，你才有能力拆開來看是哪一個 stage 死掉。Day 21 整合專題時可以再回頭評估要不要導入 MTC。
+</div>
+
+<h2>五、可直接複製貼上的指令與程式碼</h2>
+
+<h3>5-1 環境確認（先做這個，不要跳過）</h3>
+<pre><code># 確認 moveit_py 有裝（Humble 二進位套件名叫 ros-humble-moveit-py）
+sudo apt update
+sudo apt install -y ros-humble-moveit-py ros-humble-moveit-resources-panda-moveit-config
+
+source /opt/ros/humble/setup.bash
+
+# 確認 Python 端 import 得到
+python3 -c "from moveit.planning import MoveItPy; print('moveit_py OK')"
+
+# 起 Panda demo（Day 15 已經跑過，這裡再確認一次）
+ros2 launch moveit2_tutorials demo.launch.py
+# 另開一個 terminal，確認 move_group 的服務都在
+ros2 service list | grep -E "apply_planning_scene|compute_cartesian_path|check_state_validity"
+</code></pre>
+
+<h3>5-2 先用純指令玩一次 Planning Scene（建立直覺）</h3>
+<pre><code># 用 topic 加一個 30x30x2 cm 的桌面（注意 frame_id 要是規劃座標系）
+ros2 topic pub --once /collision_object moveit_msgs/msg/CollisionObject "{
+  header: {frame_id: 'panda_link0'},
+  id: 'table',
+  primitives: [{type: 1, dimensions: [0.4, 0.6, 0.02]}],
+  primitive_poses: [{position: {x: 0.5, y: 0.0, z: 0.20},
+                     orientation: {w: 1.0}}],
+  operation: 0
+}"
+# operation: 0=ADD, 1=REMOVE, 2=APPEND, 3=MOVE
+# primitives type: 1=BOX, 2=SPHERE, 3=CYLINDER, 4=CONE
+
+# 到 rviz 的 MotionPlanning -> Scene Geometry 應該看得到綠色方塊
+# 看不到？90% 是 frame_id 打錯，或 publisher 太早發出去（見 5-3 的 service 寫法）
+
+# 檢查「現在的機器人狀態有沒有碰撞」——這是你之後最常用的除錯指令
+ros2 service call /check_state_validity moveit_msgs/srv/GetStateValidity \
+  "{group_name: 'panda_arm'}"
+# 回傳 valid: false 的話，contacts 欄位會告訴你是哪兩個東西撞在一起
+</code></pre>
+
+<h3>5-3 Python：用 service 安全地加入碰撞物件</h3>
+<pre><code>#!/usr/bin/env python3
+"""scene_helper.py — 用 /apply_planning_scene 服務同步操作 Planning Scene。
+比 topic 可靠：呼叫回來就保證 move_group 已經吃進去了。"""
+
+import rclpy
+from rclpy.node import Node
+from moveit_msgs.srv import ApplyPlanningScene
+from moveit_msgs.msg import (PlanningScene, CollisionObject,
+                             AttachedCollisionObject)
+from shape_msgs.msg import SolidPrimitive
+from geometry_msgs.msg import Pose
+
+
+class SceneHelper(Node):
+    def __init__(self, planning_frame="panda_link0"):
+        super().__init__("scene_helper")
+        self.frame = planning_frame
+        self.cli = self.create_client(ApplyPlanningScene, "/apply_planning_scene")
+        # 一定要等服務起來，不然 call 出去石沉大海
+        while not self.cli.wait_for_service(timeout_sec=2.0):
+            self.get_logger().info("等待 /apply_planning_scene ...")
+
+    def _apply(self, scene: PlanningScene) -> bool:
+        # is_diff=True 代表「這是增量修改」，不是整份覆蓋。
+        # 忘記設 True 會把整個場景清空，只剩你這次送的東西 —— 很常見的坑
+        scene.is_diff = True
+        req = ApplyPlanningScene.Request()
+        req.scene = scene
+        fut = self.cli.call_async(req)
+        rclpy.spin_until_future_complete(self, fut, timeout_sec=5.0)
+        ok = fut.result() is not None and fut.result().success
+        self.get_logger().info(f"apply_planning_scene -> {ok}")
+        return ok
+
+    def add_box(self, obj_id, size_xyz, pos_xyz):
+        """加一個長方體。size_xyz / pos_xyz 都是 (x, y, z)，單位公尺。"""
+        co = CollisionObject()
+        co.header.frame_id = self.frame
+        co.id = obj_id
+
+        box = SolidPrimitive()
+        box.type = SolidPrimitive.BOX
+        box.dimensions = list(size_xyz)
+
+        pose = Pose()
+        pose.position.x, pose.position.y, pose.position.z = pos_xyz
+        pose.orientation.w = 1.0   # 單位四元數；忘了設 w=1 會得到 (0,0,0,0) 非法四元數
+
+        co.primitives = [box]
+        co.primitive_poses = [pose]
+        co.operation = CollisionObject.ADD
+
+        scene = PlanningScene()
+        scene.world.collision_objects = [co]
+        return self._apply(scene)
+
+    def remove(self, obj_id):
+        co = CollisionObject()
+        co.header.frame_id = self.frame
+        co.id = obj_id
+        co.operation = CollisionObject.REMOVE
+        scene = PlanningScene()
+        scene.world.collision_objects = [co]
+        return self._apply(scene)
+
+    def attach(self, obj_id, link="panda_hand", touch_links=None):
+        """把世界中的物件掛到 link 上。
+        touch_links：允許跟這個物件接觸的 link 清單 —— 沒填全就規劃不出來。"""
+        if touch_links is None:
+            touch_links = ["panda_hand", "panda_leftfinger", "panda_rightfinger",
+                           "panda_hand_tcp"]
+        aco = AttachedCollisionObject()
+        aco.link_name = link
+        aco.object.id = obj_id
+        aco.object.operation = CollisionObject.ADD
+        aco.touch_links = touch_links
+
+        scene = PlanningScene()
+        scene.robot_state.attached_collision_objects = [aco]
+        scene.robot_state.is_diff = True     # robot_state 也要標 is_diff
+        return self._apply(scene)
+
+    def detach(self, obj_id, link="panda_hand"):
+        aco = AttachedCollisionObject()
+        aco.link_name = link
+        aco.object.id = obj_id
+        aco.object.operation = CollisionObject.REMOVE
+        scene = PlanningScene()
+        scene.robot_state.attached_collision_objects = [aco]
+        scene.robot_state.is_diff = True
+        return self._apply(scene)
+
+
+if __name__ == "__main__":
+    rclpy.init()
+    h = SceneHelper()
+    h.add_box("table", (0.4, 0.6, 0.02), (0.5, 0.0, 0.20))
+    h.add_box("cube",  (0.04, 0.04, 0.04), (0.5, 0.0, 0.23))
+    h.get_logger().info("場景已建立，去 rviz 看看")
+    rclpy.shutdown()
+</code></pre>
+
+<h3>5-4 Python：Cartesian path（用服務，最穩的寫法）</h3>
+<pre><code>#!/usr/bin/env python3
+"""cartesian_helper.py — 呼叫 /compute_cartesian_path 做直線移動。
+moveit_py 的 Cartesian API 在不同版本之間有變動，直接打服務最保險，
+而且看得到底層在傳什麼，除錯容易很多。"""
+
+import copy
+import rclpy
+from rclpy.node import Node
+from moveit_msgs.srv import GetCartesianPath
+from geometry_msgs.msg import Pose
+
+
+class CartesianHelper(Node):
+    def __init__(self, group="panda_arm", eef_link="panda_hand_tcp",
+                 frame="panda_link0"):
+        super().__init__("cartesian_helper")
+        self.group, self.eef, self.frame = group, eef_link, frame
+        self.cli = self.create_client(GetCartesianPath, "/compute_cartesian_path")
+        while not self.cli.wait_for_service(timeout_sec=2.0):
+            self.get_logger().info("等待 /compute_cartesian_path ...")
+
+    def straight_line(self, start_pose: Pose, dxyz, min_fraction=0.9):
+        """從 start_pose 沿 dxyz=(dx,dy,dz) 走直線。回傳 (trajectory, fraction)。"""
+        target = copy.deepcopy(start_pose)
+        target.position.x += dxyz[0]
+        target.position.y += dxyz[1]
+        target.position.z += dxyz[2]
+
+        req = GetCartesianPath.Request()
+        req.header.frame_id = self.frame
+        req.group_name = self.group
+        req.link_name = self.eef
+        req.waypoints = [target]
+        req.max_step = 0.01          # 每 1 cm 插一個點
+        req.jump_threshold = 0.0     # 模擬可用 0.0；實機請改 5.0
+        req.avoid_collisions = True
+
+        fut = self.cli.call_async(req)
+        rclpy.spin_until_future_complete(self, fut, timeout_sec=10.0)
+        res = fut.result()
+        if res is None:
+            raise RuntimeError("compute_cartesian_path 沒有回應")
+
+        frac = res.fraction
+        self.get_logger().info(f"Cartesian fraction = {frac:.3f}")
+        if frac < min_fraction:
+            # 把 fraction 當 assert，不要執行半條路徑
+            raise RuntimeError(
+                f"直線只走得到 {frac*100:.0f}%。檢查：(1) 途中有沒有碰撞物件 "
+                f"(2) 目標超出工作空間 (3) 經過奇異點 "
+                f"(4) 該 attach 的物件忘了 attach")
+        return res.solution, frac
+</code></pre>
+
+<h3>5-5 主程式：Pick &amp; Place 六步骨架</h3>
+<pre><code>#!/usr/bin/env python3
+"""pick_place.py — Pick & Place 六步。
+執行方式（重要）：MoveItPy 需要完整的 robot_description / kinematics 參數，
+不能直接 python3 跑，要透過 launch 檔用 MoveItConfigsBuilder 帶參數進來。
+最快的做法是複製 moveit2_tutorials 的 motion_planning_python_api_tutorial.launch.py
+把裡面指向的 python 檔改成這一支。"""
+
+import time
+import rclpy
+from moveit.planning import MoveItPy
+from geometry_msgs.msg import Pose, PoseStamped
+
+from scene_helper import SceneHelper
+from cartesian_helper import CartesianHelper
+
+FRAME = "panda_link0"
+CUBE_POS = (0.45, 0.0, 0.23)      # 方塊中心
+PLACE_POS = (0.45, 0.30, 0.23)    # 放置點
+
+
+def make_grasp_pose(x, y, z):
+    """夾爪朝下的抓取姿態。
+    (x,y,z,w)=(1,0,0,0) 代表繞 X 軸轉 180 度 —— 也就是 Z 軸從朝上翻成朝下。
+    這一步的四元數是新手最容易搞錯的地方，Day 5 的 quaternion 概念要拿出來用。"""
+    p = Pose()
+    p.position.x, p.position.y, p.position.z = x, y, z
+    p.orientation.x, p.orientation.y = 1.0, 0.0
+    p.orientation.z, p.orientation.w = 0.0, 0.0
+    return p
+
+
+def plan_and_execute(robot, component, logger, sleep_time=0.5):
+    """一般規劃（OMPL）+ 執行。"""
+    plan_result = component.plan()
+    if not plan_result:
+        raise RuntimeError("規劃失敗：檢查目標是否可達、起始狀態是否碰撞")
+    robot.execute(plan_result.trajectory, controllers=[])
+    time.sleep(sleep_time)
+
+
+def main():
+    rclpy.init()
+
+    # --- 步驟 0：建立場景 ---
+    scene = SceneHelper(FRAME)
+    scene.add_box("table", (0.4, 0.6, 0.02), (0.5, 0.0, 0.20))
+    scene.add_box("cube",  (0.04, 0.04, 0.04), CUBE_POS)
+
+    robot = MoveItPy(node_name="pick_place_py")
+    arm = robot.get_planning_component("panda_arm")
+    hand = robot.get_planning_component("hand")
+    logger = robot.get_logger()
+    cart = CartesianHelper("panda_arm", "panda_hand_tcp", FRAME)
+
+    # --- 步驟 1：Pre-grasp，移到方塊正上方 10 cm ---
+    logger.info("[1/6] pre-grasp")
+    pre = PoseStamped()
+    pre.header.frame_id = FRAME
+    pre.pose = make_grasp_pose(CUBE_POS[0], CUBE_POS[1], CUBE_POS[2] + 0.12)
+    arm.set_start_state_to_current_state()
+    arm.set_goal_state(pose_stamped_msg=pre, pose_link="panda_hand_tcp")
+    plan_and_execute(robot, arm, logger)
+
+    # --- 步驟 2：Approach，直線下降到抓取位姿 ---
+    logger.info("[2/6] approach（Cartesian 直線下降）")
+    traj, frac = cart.straight_line(pre.pose, (0.0, 0.0, -0.10))
+    robot.execute(traj, controllers=[])
+
+    # --- 步驟 3：關夾爪 ---
+    logger.info("[3/6] 關夾爪")
+    hand.set_start_state_to_current_state()
+    hand.set_goal_state(configuration_name="close")   # SRDF 裡定義的 named state
+    plan_and_execute(robot, hand, logger)
+
+    # --- 步驟 4：Attach ---
+    logger.info("[4/6] attach cube")
+    scene.attach("cube", link="panda_hand",
+                 touch_links=["panda_hand", "panda_leftfinger",
+                              "panda_rightfinger", "panda_hand_tcp"])
+    time.sleep(0.5)   # 給 move_group 一點時間更新內部場景
+
+    # --- 步驟 5：Retreat，直線抬起 ---
+    logger.info("[5/6] retreat（Cartesian 直線抬起）")
+    grasp_pose = make_grasp_pose(CUBE_POS[0], CUBE_POS[1], CUBE_POS[2] + 0.02)
+    traj, frac = cart.straight_line(grasp_pose, (0.0, 0.0, 0.15))
+    robot.execute(traj, controllers=[])
+
+    # --- 步驟 6：Place + Detach ---
+    logger.info("[6/6] place + detach")
+    place = PoseStamped()
+    place.header.frame_id = FRAME
+    place.pose = make_grasp_pose(PLACE_POS[0], PLACE_POS[1], PLACE_POS[2] + 0.15)
+    arm.set_start_state_to_current_state()
+    arm.set_goal_state(pose_stamped_msg=place, pose_link="panda_hand_tcp")
+    plan_and_execute(robot, arm, logger)
+
+    hand.set_start_state_to_current_state()
+    hand.set_goal_state(configuration_name="open")
+    plan_and_execute(robot, hand, logger)
+
+    scene.detach("cube", link="panda_hand")
+    # detach 之後物件會回到「世界」，但位置是 detach 當下的位置。
+    # 如果你要它精準落在 PLACE_POS，記得用 operation=MOVE 更新一次。
+
+    logger.info("完成 ✅")
+    rclpy.shutdown()
+
+
+if __name__ == "__main__":
+    main()
+</code></pre>
+
+<h3>5-6 三個故意製造的失敗（一定要親手跑一次）</h3>
+<pre><code># 失敗 A：忘記 attach 就想抬起
+#   把步驟 4 註解掉再跑 → 步驟 5 的 fraction 會很低或直接規劃失敗
+#   學會看的錯誤訊息：Start state in collision / fraction = 0.0x
+
+# 失敗 B：touch_links 沒填
+#   把 attach 的 touch_links 改成 [] → 步驟 5 一樣死
+#   這兩個症狀一模一樣，但原因不同 —— 用下面這條分辨：
+ros2 service call /check_state_validity moveit_msgs/srv/GetStateValidity \
+  "{group_name: 'panda_arm'}"
+#   看 contacts 裡的 contact_body_1 / contact_body_2：
+#   如果是 cube vs panda_leftfinger → touch_links 問題
+#   如果是 cube vs table 或 cube 完全沒出現 → attach 沒做
+
+# 失敗 C：frame_id 打錯
+#   把 SceneHelper 的 planning_frame 改成 "world" 再跑
+#   物件會出現在錯誤的位置（或 TF 找不到而報 Could not find transform）
+ros2 run tf2_ros tf2_echo panda_link0 world   # 確認兩個 frame 的關係
+
+# 隨時可用的檢查工具
+ros2 topic echo /monitored_planning_scene --once   # 看 move_group 現在腦中有什麼
+ros2 control list_controllers                       # 夾爪控制器有沒有 active
+ros2 param get /move_group robot_description_kinematics.panda_arm.kinematics_solver
+</code></pre>
+
+<h2>六、今日指定資源</h2>
+<ol>
+<li><strong>MoveIt 2 官方文件（Humble）→ Examples → 「Planning Scene ROS API」</strong>：看 CollisionObject 與 AttachedCollisionObject 的完整欄位定義，特別是 <code>touch_links</code> 那一段。這是今天的主教材。</li>
+<li><strong>MoveIt 2 官方文件 → Examples → 「MoveItPy Motion Planning API」</strong>：<code>MoveItPy</code> / <code>PlanningComponent</code> 的正確用法，以及必須用 <code>MoveItConfigsBuilder</code> 帶參數的 launch 寫法。<strong>先讀這一節再跑 5-5</strong>，可以省掉一小時的「為什麼 import 得到但跑不起來」。</li>
+<li><strong>Articulated Robotics — 手臂 / MoveIt 系列</strong>：Josh 講 URDF→ros2_control→MoveIt 的串接最清楚。今天挑「setting up MoveIt」與「controllers」那兩集，重點放在<strong>控制器設定與 MoveIt 的對應關係</strong>（步驟 3 夾爪失敗幾乎都是這裡沒接好）。</li>
+<li><strong>MoveIt 2 官方文件 → 「MoveIt Task Constructor」概念頁</strong>：只讀概念、不做實作。目的是知道六步在 MTC 裡分別對應哪個 stage，Day 21 會用到。</li>
+</ol>
+
+<h2>✅ 今日驗收清單</h2>
+<ul class="check">
+<li>☐ 我能用 <code>ros2 topic pub</code> 一行指令在 rviz 裡加出一個桌面碰撞體，並解釋 <code>operation</code> 四個值的差別</li>
+<li>☐ 我的 <code>pick_place.py</code> 從頭跑到尾沒有中斷，rviz 裡方塊確實跟著夾爪移動到放置點</li>
+<li>☐ 我親手跑過失敗 A（沒 attach）與失敗 B（touch_links 空），並且能用 <code>/check_state_validity</code> 的 <code>contacts</code> 欄位分辨這兩者</li>
+<li>☐ 我能說出「為什麼 approach 和 retreat 要用 Cartesian path 而不是 OMPL」，並解釋 <code>fraction=0.6</code> 時執行下去會發生什麼事</li>
+<li>☐ 我能在 30 秒內講清楚 attach 到底改變了什麼（提示：不是 Gazebo 的物理，是 MoveIt2 的碰撞模型）</li>
+</ul>
+
+<h2>🎓 助教筆記：學生今天最會卡的五個問題</h2>
+
+<h4>1.「我加了物件但 rviz 完全看不到」</h4>
+<p><strong>症狀</strong>：topic pub 成功、沒有錯誤訊息，但 Scene Geometry 是空的。<br>
+<strong>三個原因，依機率排序</strong>：</p>
+<ul>
+<li>（60%）<strong>publisher 太早發</strong>。用 <code>rclpy</code> 建完 publisher 立刻 publish，move_group 還沒完成訂閱，訊息掉了。→ <strong>叫學生一律改用 <code>/apply_planning_scene</code> 服務</strong>，這條規則能省掉半數的求助。</li>
+<li>（30%）<strong><code>frame_id</code> 打錯或留空</strong>。留空時 TF 找不到參考系，物件被丟棄。診斷：<code>ros2 topic echo /monitored_planning_scene --once | head -60</code>，看 <code>world.collision_objects</code> 是不是空陣列。</li>
+<li>（10%）rviz 的 <strong>MotionPlanning → Scene Geometry → Show Scene Geometry 沒勾</strong>。真的常發生，先看這個最快。</li>
+</ul>
+
+<h4>2.「Start state in collision，什麼都規劃不出來」</h4>
+<p><strong>完整錯誤訊息長這樣</strong>：<code>[move_group]: Start state appears to be in collision with respect to group panda_arm</code><br>
+<strong>診斷指令</strong>：</p>
+<pre><code>ros2 service call /check_state_validity moveit_msgs/srv/GetStateValidity \
+  "{group_name: 'panda_arm'}"
+# 直接看 contacts[].contact_body_1 / contact_body_2</code></pre>
+<p><strong>四種情況</strong>：(a) 夾住東西沒 attach；(b) attach 了但 touch_links 沒填全；(c) 加的桌面 z 太高，把機器人底座包進去了（常見！桌面中心 z 減掉厚度一半才是桌面高度）；(d) 機器人真的處於自碰撞姿態，先 <code>set_goal_state(configuration_name="ready")</code> 回家。</p>
+
+<h4>3.「fraction 永遠是 0.0 或 0.1」</h4>
+<p><strong>優先檢查 <code>link_name</code> 對不對</strong>。學生很常填 <code>panda_link8</code> 或 <code>panda_hand</code>，但 SRDF 裡 <code>panda_arm</code> 群組的末端是 <code>panda_hand_tcp</code>。填了不屬於該 group kinematic chain 的 link，服務會回 fraction 0 而<strong>不會報錯</strong>——這是最惡劣的一種失敗，因為沒有錯誤訊息可查。</p>
+<pre><code># 確認 group 的 tip link 到底叫什麼
+ros2 param get /move_group robot_description_semantic | grep -A3 "group name=\"panda_arm\""
+# 或直接在 rviz 的 MotionPlanning -> Planning -> 看 End Effector 欄位</code></pre>
+<p>其次才是：起始 pose 給錯（用了目標 pose 當起點）、途中有碰撞物件、目標超出工作空間。</p>
+
+<h4>4.「MoveItPy 起不來：Parameter 'robot_description' not found」</h4>
+<p><strong>這是今天最會浪費時間的問題。</strong>學生直覺會 <code>python3 pick_place.py</code>，一定失敗。<code>MoveItPy</code> 需要 robot_description、robot_description_semantic、kinematics.yaml、planning pipeline 等一整包參數，這些只能透過 launch 檔的 <code>MoveItConfigsBuilder</code> 注入。</p>
+<p><strong>標準解法</strong>：複製官方 <code>motion_planning_python_api_tutorial.launch.py</code>，把 <code>Node(package=..., executable=...)</code> 指向自己的檔案。<strong>提醒學生：這支 Python 必須是 package 裡的 entry point（setup.py 的 console_scripts），不能是隨便一個 .py。</strong></p>
+<pre><code># 快速確認參數有沒有進去
+ros2 param list /pick_place_py | grep robot_description</code></pre>
+
+<h4>5.「模擬裡方塊從指縫滑掉／穿過去了」</h4>
+<p><strong>先講清楚這不是 MoveIt2 的問題。</strong>MoveIt2 只管規劃與碰撞模型，Gazebo 管物理。方塊掉下去是摩擦係數（<code>&lt;mu1&gt;/&lt;mu2&gt;</code>）太低、或求解器迭代次數不夠。</p>
+<p><strong>教學上的處理方式</strong>：告訴學生「rviz 裡方塊跟著手走 = MoveIt2 這邊是對的，作業算過」，Gazebo 的抓取穩定性是另一個題目。真要在模擬裡抓穩，實務做法是用 <code>gazebo_ros_link_attacher</code> 之類的插件在夾爪閉合時建立固定關節——這是<strong>公認的作弊但業界普遍在用</strong>，Day 19 講 Sim2Real Gap 時會回頭談這件事為什麼會害到實機表現。</p>
+
+<div class="box">
+<strong>📌 給助教的一句話總結</strong><br>
+今天所有問題都可以用同一個問句拆開：<strong>「這是 MoveIt2 腦中的世界出問題，還是 Gazebo 的物理出問題？」</strong> 學生九成的混亂來自把這兩個世界混為一談。先問這句，再決定要看 <code>/monitored_planning_scene</code> 還是看 Gazebo 的 SDF。
+</div>
+
+<h2>📮 回報格式</h2>
+<div class="goal">
+今天結束請回覆四件事：
+<ol>
+<li><strong>完成了什麼</strong>：六步跑到第幾步？失敗 A/B/C 各跑過了嗎？</li>
+<li><strong>卡在哪</strong>：<strong>貼完整錯誤訊息</strong>（含 <code>[move_group]</code> 前綴那幾行，不要只寫「規劃失敗」）</li>
+<li><strong>沒懂的概念</strong>：ACM？四元數姿態？jump_threshold？哪個講一次還是模糊</li>
+<li><strong>實際花的時間</strong>：上午／下午／晚上各多久，跟預估差多少</li>
+</ol>
+</div>
+
+<footer>
+<a href="index.html">← 回索引</a> ｜ Physical AI 助教特訓 · Day 16 / 30 ｜ Ubuntu 22.04 · ROS2 Humble · Gazebo Classic 11 · Python 3.10
+</footer>
+
+</div></body>
+</html>
